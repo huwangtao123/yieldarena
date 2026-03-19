@@ -1,0 +1,25 @@
+<svg width="96" height="96" viewBox="0 0 96 96" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="ya-stroke" x1="16" y1="16" x2="80" y2="80" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FF6BF2"/>
+      <stop offset="1" stop-color="#FF00D4"/>
+    </linearGradient>
+    <linearGradient id="ya-core" x1="34" y1="34" x2="62" y2="62" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#D7F2EB"/>
+      <stop offset="1" stop-color="#6CF0C2"/>
+    </linearGradient>
+    <filter id="ya-glow" x="0" y="0" width="96" height="96" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feFlood flood-opacity="0" result="BackgroundImageFix"/>
+      <feBlend mode="normal" in="SourceGraphic" in2="BackgroundImageFix" result="shape"/>
+      <feGaussianBlur stdDeviation="2.4" result="effect1_foregroundBlur"/>
+    </filter>
+  </defs>
+  <g filter="url(#ya-glow)">
+    <path d="M48 12C48 22 42 30 34 30C23 30 16 20 16 20C16 20 18 37 30 42C18 47 16 64 16 64C16 64 25 64 34 56C42 50 48 58 48 84C48 58 54 50 62 56C71 64 80 64 80 64C80 64 78 47 66 42C78 37 80 20 80 20C80 20 73 30 62 30C54 30 48 22 48 12Z" stroke="url(#ya-stroke)" stroke-width="4"/>
+    <circle cx="48" cy="48" r="10" fill="url(#ya-core)" stroke="url(#ya-stroke)" stroke-width="3"/>
+    <path d="M48 24V33" stroke="url(#ya-stroke)" stroke-width="3" stroke-linecap="round"/>
+    <path d="M48 63V72" stroke="url(#ya-stroke)" stroke-width="3" stroke-linecap="round"/>
+    <path d="M24 48H33" stroke="url(#ya-stroke)" stroke-width="3" stroke-linecap="round"/>
+    <path d="M63 48H72" stroke="url(#ya-stroke)" stroke-width="3" stroke-linecap="round"/>
+  </g>
+</svg>
