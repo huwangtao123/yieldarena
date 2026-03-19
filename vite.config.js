@@ -1,8 +1,13 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
+import { randomBytes } from "node:crypto";
 
 function createInitialArenaState() {
   return {
+    mainLoginWallet: {
+      label: "Main Arena Login",
+      address: "0xa11ce00000000000000000000000000000000001",
+    },
     principal: 100,
     todayYield: 0.08,
     playBudget: 0.08,
@@ -98,6 +103,7 @@ function createInitialArenaState() {
         createdAt: "2026-03-19T15:01:00.000Z",
       },
     ],
+    registrations: {},
     entryHistory: [],
   };
 }
@@ -129,6 +135,10 @@ function readJsonBody(req) {
     });
     req.on("error", reject);
   });
+}
+
+function generateAssociatedWallet() {
+  return `0x${randomBytes(20).toString("hex")}`;
 }
 
 function arenaDevApi() {
@@ -211,6 +221,71 @@ function arenaDevApi() {
           json(res, 200, arenaState);
         } catch {
           json(res, 400, { error: "invalid json body" });
+        }
+      });
+
+      server.middlewares.use("/api/arena/register-checkers", async (req, res) => {
+        if (req.method !== "POST") {
+          json(res, 405, { error: "method not allowed" });
+          return;
+        }
+
+        try {
+          const body = await readJsonBody(req);
+          const agentId = body.agentId ?? arenaState.selectedAgentId;
+          const agent = arenaState.agents.find((item) => item.id === agentId);
+          if (!agent) {
+            json(res, 404, { error: "agent not found" });
+            return;
+          }
+
+          const existing = arenaState.registrations[agent.id];
+          if (existing) {
+            json(res, 200, {
+              registration: existing,
+              arenaState,
+            });
+            return;
+          }
+
+          const nickname = body.nickname?.trim() || agent.name;
+          const address = generateAssociatedWallet();
+
+          const upstream = await fetch("https://mpp-checkers.com/register", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              nickname,
+              address,
+            }),
+          });
+
+          const payload = await upstream.json().catch(() => ({}));
+          if (!upstream.ok) {
+            json(res, upstream.status, {
+              error: payload?.error ?? "checkers registration failed",
+            });
+            return;
+          }
+
+          const registration = {
+            competitionId: "mpp-checkers",
+            nickname: payload.player?.nickname ?? nickname,
+            address: payload.player?.address ?? address,
+            createdAt: payload.player?.created_at ?? new Date().toISOString(),
+            parentWallet: arenaState.mainLoginWallet.address,
+          };
+
+          arenaState.registrations[agent.id] = registration;
+
+          json(res, 200, {
+            registration,
+            arenaState,
+          });
+        } catch {
+          json(res, 400, { error: "invalid registration request" });
         }
       });
 
