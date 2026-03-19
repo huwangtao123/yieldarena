@@ -1,6 +1,13 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import { randomBytes } from "node:crypto";
+import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const dataDir = path.join(__dirname, ".data");
+const registrationsPath = path.join(dataDir, "registrations.json");
 
 function createInitialArenaState() {
   return {
@@ -110,8 +117,36 @@ function createInitialArenaState() {
 
 const arenaState = createInitialArenaState();
 
+function loadPersistedRegistrations() {
+  if (!existsSync(registrationsPath)) {
+    return {};
+  }
+
+  try {
+    const raw = readFileSync(registrationsPath, "utf8");
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function persistRegistrations() {
+  mkdirSync(dataDir, { recursive: true });
+  writeFileSync(
+    registrationsPath,
+    JSON.stringify(arenaState.registrations, null, 2),
+    "utf8",
+  );
+}
+
+arenaState.registrations = loadPersistedRegistrations();
+
 function resetArenaState() {
   Object.assign(arenaState, createInitialArenaState());
+  if (existsSync(registrationsPath)) {
+    unlinkSync(registrationsPath);
+  }
 }
 
 function json(res, statusCode, payload) {
@@ -279,6 +314,7 @@ function arenaDevApi() {
           };
 
           arenaState.registrations[agent.id] = registration;
+          persistRegistrations();
 
           json(res, 200, {
             registration,

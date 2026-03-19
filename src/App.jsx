@@ -628,6 +628,12 @@ function App() {
               </div>
               {selectedAgentRegistration ? (
                 <div className="agent-stat-line stacked">
+                  <span className="tiny-label">registered nickname</span>
+                  <span>{selectedAgentRegistration.nickname}</span>
+                </div>
+              ) : null}
+              {selectedAgentRegistration ? (
+                <div className="agent-stat-line stacked">
                   <span className="tiny-label">generated checkers wallet</span>
                   <span>{selectedAgentRegistration.address}</span>
                 </div>
