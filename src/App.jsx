@@ -139,6 +139,13 @@ function App() {
   const [isEntering, setIsEntering] = useState(false);
   const [entryError, setEntryError] = useState("");
   const [lastEntry, setLastEntry] = useState(null);
+  const [registrationForm, setRegistrationForm] = useState({
+    nickname: "DragonBot",
+    address: "",
+  });
+  const [registrationStatus, setRegistrationStatus] = useState({});
+  const [isRegistering, setIsRegistering] = useState(false);
+  const [registrationError, setRegistrationError] = useState("");
 
   useEffect(() => {
     let active = true;
@@ -164,6 +171,19 @@ function App() {
       window.clearInterval(interval);
     };
   }, []);
+
+  useEffect(() => {
+    const currentAgent =
+      arenaState.agents.find((agent) => agent.id === arenaState.selectedAgentId) ??
+      arenaState.agents[0];
+    if (!currentAgent) return;
+
+    setRegistrationForm((current) => ({
+      nickname: currentAgent.name,
+      address: current.address,
+    }));
+    setRegistrationError("");
+  }, [arenaState.agents, arenaState.selectedAgentId]);
 
   useEffect(() => {
     if (!scoreboard.length) return;
@@ -358,6 +378,43 @@ function App() {
     }
   }
 
+  async function handleRegisterAgent(event) {
+    event.preventDefault();
+    setRegistrationError("");
+    setIsRegistering(true);
+
+    try {
+      const response = await fetch("/api/checkers/register", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          nickname: registrationForm.nickname.trim(),
+          address: registrationForm.address.trim(),
+        }),
+      });
+
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data?.error ?? `HTTP ${response.status}`);
+      }
+
+      setRegistrationStatus((current) => ({
+        ...current,
+        [arenaState.selectedAgentId]: {
+          nickname: data.player.nickname,
+          address: data.player.address,
+          createdAt: data.player.created_at,
+        },
+      }));
+    } catch (error) {
+      setRegistrationError(error.message || "registration failed");
+    } finally {
+      setIsRegistering(false);
+    }
+  }
+
   const activeAgents = useMemo(
     () => arenaState.agents.map((agent) => agent.name),
     [arenaState.agents]
@@ -402,6 +459,7 @@ function App() {
   const selectedAgentEntries = arenaState.entryHistory.filter(
     (entry) => entry.agentId === selectedAgent?.id
   ).length;
+  const selectedAgentRegistration = registrationStatus[arenaState.selectedAgentId];
 
   return (
     <div className="app-shell">
@@ -595,6 +653,53 @@ function App() {
                 <span>{selectedAgent?.preferredCompetition ?? selectedCompetition?.title}</span>
               </div>
             </article>
+            <form className="registration-form" onSubmit={handleRegisterAgent}>
+              <div className="label">REGISTER FOR MPP CHECKERS</div>
+              <label className="field-block">
+                <span className="label">nickname</span>
+                <input
+                  className="arena-input"
+                  value={registrationForm.nickname}
+                  onChange={(event) =>
+                    setRegistrationForm((current) => ({
+                      ...current,
+                      nickname: event.target.value,
+                    }))
+                  }
+                  type="text"
+                  required
+                />
+              </label>
+              <label className="field-block">
+                <span className="label">tempo address</span>
+                <input
+                  className="arena-input"
+                  value={registrationForm.address}
+                  onChange={(event) =>
+                    setRegistrationForm((current) => ({
+                      ...current,
+                      address: event.target.value,
+                    }))
+                  }
+                  type="text"
+                  placeholder="0x..."
+                  required
+                />
+              </label>
+              <button className="action-button" type="submit" disabled={isRegistering}>
+                {isRegistering ? "Registering..." : "Register Agent"}
+              </button>
+              {registrationError ? (
+                <div className="entry-note error">{registrationError}</div>
+              ) : null}
+              {selectedAgentRegistration ? (
+                <div className="entry-note">
+                  Registered as {selectedAgentRegistration.nickname} · {selectedAgentRegistration.address.slice(0, 8)}...
+                </div>
+              ) : (
+                <div className="entry-note">Register this agent before direct match play.</div>
+              )}
+            </form>
           </div>
 
           <div className="score-mini">
