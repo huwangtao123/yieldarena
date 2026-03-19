@@ -129,6 +129,8 @@ function formatTime(value) {
 function App() {
   const [scoreboard, setScoreboard] = useState(fallbackScoreboard);
   const [recentGames, setRecentGames] = useState([]);
+  const [selectedGameId, setSelectedGameId] = useState("");
+  const [selectedGameState, setSelectedGameState] = useState(null);
   const [scoreStatus, setScoreStatus] = useState("snapshot");
   const [arenaState, setArenaState] = useState(fallbackArenaState);
   const [arenaStatus, setArenaStatus] = useState("snapshot");
@@ -158,6 +160,35 @@ function App() {
       active = false;
     };
   }, []);
+
+  useEffect(() => {
+    if (!recentGames.length) return;
+    if (selectedGameId && recentGames.some((game) => game.game_id === selectedGameId)) return;
+    setSelectedGameId(recentGames[0].game_id);
+  }, [recentGames, selectedGameId]);
+
+  useEffect(() => {
+    if (!selectedGameId) return;
+    let active = true;
+
+    async function loadSelectedGame() {
+      try {
+        const response = await fetch(`/api/checkers/games/${selectedGameId}`);
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const data = await response.json();
+        if (!active) return;
+        setSelectedGameState(data);
+      } catch {
+        if (!active) return;
+        setSelectedGameState(null);
+      }
+    }
+
+    loadSelectedGame();
+    return () => {
+      active = false;
+    };
+  }, [selectedGameId]);
 
   useEffect(() => {
     let active = true;
@@ -541,7 +572,12 @@ function App() {
             <div className="label">RECENT MATCHES</div>
             {recentGames.length ? (
               recentGames.map((game) => (
-                <article className="ledger-row" key={game.game_id}>
+                <button
+                  className={`ledger-row ledger-button${selectedGameId === game.game_id ? " active" : ""}`}
+                  key={game.game_id}
+                  onClick={() => setSelectedGameId(game.game_id)}
+                  type="button"
+                >
                   <div>
                     <strong>
                       {game.black ?? "open"} vs {game.red ?? "open"}
@@ -554,10 +590,45 @@ function App() {
                     <span className="mono">{game.winner ?? "--"}</span>
                     <span className="label">{game.game_id}</span>
                   </div>
-                </article>
+                </button>
               ))
             ) : (
               <div className="entry-note">No recent matches loaded.</div>
+            )}
+          </div>
+
+          <div className="score-mini">
+            <div className="label">LIVE MATCH STATE</div>
+            {selectedGameState ? (
+              <>
+                <article className="match-meta">
+                  <div>
+                    <span className="label">game</span>
+                    <strong>{selectedGameState.game_id}</strong>
+                  </div>
+                  <div>
+                    <span className="label">turn</span>
+                    <strong>{selectedGameState.turn ?? "--"}</strong>
+                  </div>
+                  <div>
+                    <span className="label">winner</span>
+                    <strong>{selectedGameState.winner ?? "--"}</strong>
+                  </div>
+                  <div>
+                    <span className="label">moves</span>
+                    <strong>{selectedGameState.move_count ?? 0}</strong>
+                  </div>
+                </article>
+                <div className="board-grid">
+                  {selectedGameState.board?.flat().map((cell, index) => (
+                    <div className={`board-cell cell-${cell}`} key={`${selectedGameState.game_id}-${index}`}>
+                      {cell === "." ? "" : cell}
+                    </div>
+                  ))}
+                </div>
+              </>
+            ) : (
+              <div className="entry-note">No match state loaded.</div>
             )}
           </div>
 

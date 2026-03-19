@@ -533,6 +533,22 @@ a {
   border-top: 1px solid rgba(44, 244, 255, 0.16);
 }
 
+.ledger-button {
+  width: 100%;
+  background: transparent;
+  border-left: none;
+  border-right: none;
+  border-bottom: none;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.ledger-button:hover,
+.ledger-button.active {
+  color: var(--accent);
+}
+
 .ledger-row strong {
   display: block;
   font-size: 0.95rem;
@@ -543,6 +559,54 @@ a {
   display: grid;
   justify-items: end;
   gap: 4px;
+}
+
+.match-meta {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  padding-top: 10px;
+  border-top: 1px solid rgba(44, 244, 255, 0.16);
+}
+
+.match-meta div {
+  display: grid;
+  gap: 6px;
+}
+
+.match-meta strong {
+  font-size: 0.95rem;
+  font-weight: 500;
+}
+
+.board-grid {
+  margin-top: 14px;
+  display: grid;
+  grid-template-columns: repeat(8, 1fr);
+  gap: 1px;
+  border: 1px solid rgba(44, 244, 255, 0.16);
+  background: rgba(44, 244, 255, 0.12);
+}
+
+.board-cell {
+  aspect-ratio: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(5, 11, 11, 0.94);
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  text-transform: uppercase;
+}
+
+.cell-b,
+.cell-B {
+  color: var(--accent);
+}
+
+.cell-r,
+.cell-R {
+  color: #ff8f8f;
 }
 
 @media (max-width: 1180px) {
