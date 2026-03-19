@@ -8,12 +8,51 @@ import { fileURLToPath } from "node:url";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const dataDir = path.join(__dirname, ".data");
 const registrationsPath = path.join(dataDir, "registrations.json");
+const competitionWalletsPath = path.join(dataDir, "competition-wallets.json");
 
 function createInitialArenaState() {
+  const initialLedger = [
+    {
+      id: "ledger-yield-refresh",
+      type: "yield_refresh",
+      label: "Daily yield refreshed",
+      source: "wallet",
+      amount: 0.08,
+      createdAt: "2026-03-19T15:00:00.000Z",
+    },
+    {
+      id: "ledger-protocol-start",
+      type: "starter_budget",
+      label: "Protocol starter budget loaded",
+      source: "protocol",
+      amount: 0.01,
+      createdAt: "2026-03-19T15:01:00.000Z",
+    },
+  ];
+
   return {
     mainLoginWallet: {
       label: "Main Arena Login",
       address: "0xa11ce00000000000000000000000000000000001",
+    },
+    vaults: {
+      protocol: {
+        key: "protocol",
+        label: "Protocol Vault",
+        role: "starter budget",
+        availableAllowance: 0.01,
+        dailyAllowance: 0.01,
+        lifetimeFunded: 0,
+      },
+      wallet: {
+        key: "wallet",
+        label: "Wallet Vault",
+        principal: 100,
+        todayYield: 0.08,
+        availableAllowance: 0.07,
+        lifetimeFunded: 0,
+        withdrawablePrincipal: 100,
+      },
     },
     principal: 100,
     todayYield: 0.08,
@@ -92,24 +131,9 @@ function createInitialArenaState() {
       protocol: { key: "protocol", label: "Protocol Budget", available: 0.01 },
       wallet: { key: "wallet", label: "Wallet Budget", available: 0.07 },
     },
-    budgetLedger: [
-      {
-        id: "ledger-yield-refresh",
-        type: "yield_refresh",
-        label: "Daily yield refreshed",
-        source: "wallet",
-        amount: 0.08,
-        createdAt: "2026-03-19T15:00:00.000Z",
-      },
-      {
-        id: "ledger-protocol-start",
-        type: "starter_budget",
-        label: "Protocol starter budget loaded",
-        source: "protocol",
-        amount: 0.01,
-        createdAt: "2026-03-19T15:01:00.000Z",
-      },
-    ],
+    competitionWallets: {},
+    fundingLedger: initialLedger,
+    budgetLedger: initialLedger,
     registrations: {},
     entryHistory: [],
   };
@@ -140,12 +164,205 @@ function persistRegistrations() {
   );
 }
 
+function loadPersistedCompetitionWallets() {
+  if (!existsSync(competitionWalletsPath)) {
+    return {};
+  }
+
+  try {
+    const raw = readFileSync(competitionWalletsPath, "utf8");
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function persistCompetitionWallets() {
+  mkdirSync(dataDir, { recursive: true });
+  writeFileSync(
+    competitionWalletsPath,
+    JSON.stringify(arenaState.competitionWallets, null, 2),
+    "utf8",
+  );
+}
+
+function roundMoney(value) {
+  return Number(value.toFixed(2));
+}
+
+function getCompetitionWalletKey(agentId, competitionId) {
+  return `${agentId}:${competitionId}`;
+}
+
+function createCompetitionWalletRecord({ agentId, competitionId, address, parentWallet }) {
+  return {
+    id: `cw-${agentId}-${competitionId}`,
+    agentId,
+    competitionId,
+    address,
+    parentWallet,
+    status: "ready",
+    balance: 0,
+    fundedTotals: {
+      protocol: 0,
+      wallet: 0,
+    },
+    spentTotal: 0,
+    sweptTotal: 0,
+    lastFundingSource: null,
+    lastFundingAt: null,
+    lastSpendAt: null,
+    lastSweepAt: null,
+  };
+}
+
+function syncDerivedArenaState() {
+  arenaState.principal = arenaState.vaults.wallet.principal;
+  arenaState.todayYield = arenaState.vaults.wallet.todayYield;
+  arenaState.budgetSources.protocol.available = arenaState.vaults.protocol.availableAllowance;
+  arenaState.budgetSources.wallet.available = arenaState.vaults.wallet.availableAllowance;
+  arenaState.playBudget = roundMoney(
+    arenaState.vaults.protocol.availableAllowance + arenaState.vaults.wallet.availableAllowance,
+  );
+  arenaState.budgetLedger = arenaState.fundingLedger;
+}
+
+function hydrateCompetitionWalletsFromRegistrations() {
+  for (const [agentId, registration] of Object.entries(arenaState.registrations)) {
+    const key = getCompetitionWalletKey(agentId, registration.competitionId);
+    if (!arenaState.competitionWallets[key]) {
+      arenaState.competitionWallets[key] = createCompetitionWalletRecord({
+        agentId,
+        competitionId: registration.competitionId,
+        address: registration.address,
+        parentWallet: registration.parentWallet,
+      });
+    }
+  }
+}
+
+function addFundingLedgerItem(item) {
+  arenaState.fundingLedger.unshift(item);
+}
+
+function topUpCompetitionWallet({
+  agentId,
+  competitionId,
+  sourceKey,
+  amount,
+  label,
+}) {
+  const walletKey = getCompetitionWalletKey(agentId, competitionId);
+  const competitionWallet = arenaState.competitionWallets[walletKey];
+  const vault = arenaState.vaults[sourceKey];
+
+  if (!competitionWallet || competitionWallet.status !== "ready") {
+    throw new Error("competition wallet is not ready");
+  }
+
+  if (!vault) {
+    throw new Error("vault not found");
+  }
+
+  if (vault.availableAllowance < amount) {
+    throw new Error("insufficient budget");
+  }
+
+  const now = new Date().toISOString();
+  vault.availableAllowance = roundMoney(vault.availableAllowance - amount);
+  vault.lifetimeFunded = roundMoney((vault.lifetimeFunded ?? 0) + amount);
+  competitionWallet.balance = roundMoney(competitionWallet.balance + amount);
+  competitionWallet.fundedTotals[sourceKey] = roundMoney(
+    (competitionWallet.fundedTotals[sourceKey] ?? 0) + amount,
+  );
+  competitionWallet.lastFundingSource = sourceKey;
+  competitionWallet.lastFundingAt = now;
+
+  const ledgerItem = {
+    id: `ledger-topup-${Date.now()}`,
+    type: "top_up",
+    label,
+    source: sourceKey,
+    amount,
+    agentId,
+    competitionId,
+    walletAddress: competitionWallet.address,
+    createdAt: now,
+  };
+
+  addFundingLedgerItem(ledgerItem);
+  syncDerivedArenaState();
+  persistCompetitionWallets();
+
+  return {
+    competitionWallet,
+    ledgerItem,
+  };
+}
+
+function sweepCompetitionWallet({
+  agentId,
+  competitionId,
+  destinationKey = "wallet",
+}) {
+  const walletKey = getCompetitionWalletKey(agentId, competitionId);
+  const competitionWallet = arenaState.competitionWallets[walletKey];
+  const vault = arenaState.vaults[destinationKey];
+
+  if (!competitionWallet || competitionWallet.status !== "ready") {
+    throw new Error("competition wallet is not ready");
+  }
+
+  if (!vault) {
+    throw new Error("vault not found");
+  }
+
+  if (competitionWallet.balance <= 0) {
+    throw new Error("competition wallet has no balance to sweep");
+  }
+
+  const amount = competitionWallet.balance;
+  const now = new Date().toISOString();
+  competitionWallet.balance = 0;
+  competitionWallet.sweptTotal = roundMoney(competitionWallet.sweptTotal + amount);
+  competitionWallet.lastSweepAt = now;
+  vault.availableAllowance = roundMoney(vault.availableAllowance + amount);
+
+  const ledgerItem = {
+    id: `ledger-sweep-${Date.now()}`,
+    type: "sweep",
+    label: `Swept ${competitionId} wallet back to ${destinationKey}`,
+    source: destinationKey,
+    amount,
+    agentId,
+    competitionId,
+    walletAddress: competitionWallet.address,
+    createdAt: now,
+  };
+
+  addFundingLedgerItem(ledgerItem);
+  syncDerivedArenaState();
+  persistCompetitionWallets();
+
+  return {
+    competitionWallet,
+    ledgerItem,
+  };
+}
+
 arenaState.registrations = loadPersistedRegistrations();
+arenaState.competitionWallets = loadPersistedCompetitionWallets();
+hydrateCompetitionWalletsFromRegistrations();
+syncDerivedArenaState();
 
 function resetArenaState() {
   Object.assign(arenaState, createInitialArenaState());
   if (existsSync(registrationsPath)) {
     unlinkSync(registrationsPath);
+  }
+  if (existsSync(competitionWalletsPath)) {
+    unlinkSync(competitionWalletsPath);
   }
 }
 
@@ -314,7 +531,17 @@ function arenaDevApi() {
           };
 
           arenaState.registrations[agent.id] = registration;
+          arenaState.competitionWallets[
+            getCompetitionWalletKey(agent.id, registration.competitionId)
+          ] = createCompetitionWalletRecord({
+            agentId: agent.id,
+            competitionId: registration.competitionId,
+            address: registration.address,
+            parentWallet: registration.parentWallet,
+          });
           persistRegistrations();
+          persistCompetitionWallets();
+          syncDerivedArenaState();
 
           json(res, 200, {
             registration,
@@ -322,6 +549,78 @@ function arenaDevApi() {
           });
         } catch {
           json(res, 400, { error: "invalid registration request" });
+        }
+      });
+
+      server.middlewares.use("/api/arena/top-up", async (req, res) => {
+        if (req.method !== "POST") {
+          json(res, 405, { error: "method not allowed" });
+          return;
+        }
+
+        try {
+          const body = await readJsonBody(req);
+          const agentId = body.agentId ?? arenaState.selectedAgentId;
+          const competitionId = body.competitionId ?? arenaState.selectedCompetitionId;
+          const sourceKey = body.source ?? arenaState.selectedBudgetSource;
+          const competition = arenaState.competitions.find((item) => item.id === competitionId);
+          const amount = roundMoney(
+            Number(body.amount ?? competition?.entryPrice ?? 0),
+          );
+
+          if (!arenaState.registrations[agentId]) {
+            json(res, 409, { error: "agent is not registered for this competition" });
+            return;
+          }
+
+          if (!competition || amount <= 0) {
+            json(res, 400, { error: "invalid top-up request" });
+            return;
+          }
+
+          const result = topUpCompetitionWallet({
+            agentId,
+            competitionId,
+            sourceKey,
+            amount,
+            label: `Topped up ${competition.title} wallet`,
+          });
+
+          json(res, 200, {
+            topUp: result.ledgerItem,
+            competitionWallet: result.competitionWallet,
+            arenaState,
+          });
+        } catch (error) {
+          json(res, 409, { error: error.message || "top-up failed" });
+        }
+      });
+
+      server.middlewares.use("/api/arena/sweep", async (req, res) => {
+        if (req.method !== "POST") {
+          json(res, 405, { error: "method not allowed" });
+          return;
+        }
+
+        try {
+          const body = await readJsonBody(req);
+          const agentId = body.agentId ?? arenaState.selectedAgentId;
+          const competitionId = body.competitionId ?? arenaState.selectedCompetitionId;
+          const destinationKey = body.destination ?? "wallet";
+
+          const result = sweepCompetitionWallet({
+            agentId,
+            competitionId,
+            destinationKey,
+          });
+
+          json(res, 200, {
+            sweep: result.ledgerItem,
+            competitionWallet: result.competitionWallet,
+            arenaState,
+          });
+        } catch (error) {
+          json(res, 409, { error: error.message || "sweep failed" });
         }
       });
 
@@ -338,12 +637,18 @@ function arenaDevApi() {
           const agent = arenaState.agents.find(
             (item) => item.id === arenaState.selectedAgentId,
           );
+          const registration = arenaState.registrations[arenaState.selectedAgentId];
           const competition = arenaState.competitions.find(
             (item) => item.id === competitionId,
           );
 
           if (!budget || !agent || !competition) {
             json(res, 400, { error: "arena state is incomplete" });
+            return;
+          }
+
+          if (!registration) {
+            json(res, 409, { error: "agent is not registered for this competition" });
             return;
           }
 
@@ -357,21 +662,41 @@ function arenaDevApi() {
           }
 
           const entryCost = competition.entryPrice;
-          if (budget.available < entryCost) {
-            json(res, 409, {
-              error: "insufficient budget",
-              available: budget.available,
-              required: entryCost,
-            });
+          const walletKey = getCompetitionWalletKey(agent.id, competitionId);
+          const competitionWallet = arenaState.competitionWallets[walletKey];
+
+          if (!competitionWallet || competitionWallet.status !== "ready") {
+            json(res, 409, { error: "competition wallet is not ready" });
             return;
           }
 
-          budget.available = Number((budget.available - entryCost).toFixed(2));
-          arenaState.playBudget = Number(
-            Object.values(arenaState.budgetSources)
-              .reduce((sum, source) => sum + source.available, 0)
-              .toFixed(2),
+          let topUp = null;
+          if (competitionWallet.balance < entryCost) {
+            const topUpAmount = roundMoney(entryCost - competitionWallet.balance);
+            if (budget.available < topUpAmount) {
+              json(res, 409, {
+                error: "insufficient budget",
+                available: budget.available,
+                required: topUpAmount,
+              });
+              return;
+            }
+
+            const fundingResult = topUpCompetitionWallet({
+              agentId: agent.id,
+              competitionId,
+              sourceKey: budget.key,
+              amount: topUpAmount,
+              label: `Auto top-up for ${competition.title}`,
+            });
+            topUp = fundingResult.ledgerItem;
+          }
+
+          competitionWallet.balance = roundMoney(competitionWallet.balance - entryCost);
+          competitionWallet.spentTotal = roundMoney(
+            competitionWallet.spentTotal + entryCost,
           );
+          competitionWallet.lastSpendAt = new Date().toISOString();
 
           const entry = {
             id: `entry-${Date.now()}`,
@@ -379,6 +704,7 @@ function arenaDevApi() {
             agentId: agent.id,
             agentName: agent.name,
             budgetSource: budget.key,
+            walletAddress: competitionWallet.address,
             amount: entryCost,
             status: "entered",
             externalUrl: competition.externalUrl,
@@ -393,14 +719,19 @@ function arenaDevApi() {
             amount: entryCost,
             agentId: agent.id,
             agentName: agent.name,
+            competitionId,
+            walletAddress: competitionWallet.address,
             createdAt: entry.createdAt,
           };
 
           arenaState.entryHistory.unshift(entry);
-          arenaState.budgetLedger.unshift(ledgerItem);
+          addFundingLedgerItem(ledgerItem);
+          syncDerivedArenaState();
+          persistCompetitionWallets();
 
           json(res, 200, {
             entry,
+            topUp,
             arenaState,
           });
         } catch {
