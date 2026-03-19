@@ -344,6 +344,51 @@ a {
   gap: 16px;
 }
 
+.step-list {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.step-card {
+  border: 1px solid var(--line);
+  background: var(--panel-soft);
+  padding: 14px;
+  display: grid;
+  gap: 10px;
+}
+
+.step-top {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  align-items: center;
+}
+
+.step-card strong {
+  font-size: 0.98rem;
+  font-weight: 500;
+}
+
+.status-chip.subtle {
+  border-color: var(--line);
+  color: var(--muted);
+}
+
+.status-done {
+  border-color: rgba(44, 244, 255, 0.28);
+}
+
+.status-ready {
+  border-color: var(--line-strong);
+}
+
+.status-required,
+.status-waiting,
+.status-locked {
+  border-color: rgba(255, 255, 255, 0.08);
+}
+
 .agent-card {
   padding: 16px;
   display: grid;
@@ -595,6 +640,7 @@ a {
   }
 
   .metrics-strip,
+  .step-list,
   .budget-picker,
   .form-grid,
   .competition-stats,

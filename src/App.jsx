@@ -407,6 +407,46 @@ function App() {
   );
 
   const selectedAgentRegistration = registrationStatus[arenaState.selectedAgentId];
+  const selectedBudget =
+    arenaState.budgetSources[arenaState.selectedBudgetSource] ??
+    Object.values(arenaState.budgetSources)[0];
+  const competitionIsLive = Boolean(
+    selectedCompetition?.externalUrl && selectedCompetition?.status === "live"
+  );
+  const budgetReady =
+    selectedBudget?.available >= (selectedCompetition?.entryPrice ?? Number.POSITIVE_INFINITY);
+  const commandSteps = [
+    {
+      id: "step-1",
+      label: "Step 1",
+      title: "Pick an agent",
+      detail: `${selectedAgent?.name ?? "DragonBot"} · ${selectedAgent?.style ?? "balanced"}`,
+      status: "done",
+    },
+    {
+      id: "step-2",
+      label: "Step 2",
+      title: "Register for MPP Checkers",
+      detail: selectedAgentRegistration
+        ? `${selectedAgentRegistration.nickname} is ready`
+        : "Register this agent with a Tempo address",
+      status: selectedAgentRegistration ? "done" : "required",
+    },
+    {
+      id: "step-3",
+      label: "Step 3",
+      title: "Enter the live competition",
+      detail: competitionIsLive
+        ? `${selectedBudget?.label ?? "Budget"} · ${budgetReady ? "budget ready" : "insufficient budget"}`
+        : "Select a live competition first",
+      status:
+        competitionIsLive && budgetReady && selectedAgentRegistration
+          ? "ready"
+          : competitionIsLive
+            ? "waiting"
+            : "locked",
+    },
+  ];
 
   async function handleEnterCompetition() {
     setIsEntering(true);
@@ -550,6 +590,18 @@ function App() {
 
           <section className="panel command-panel">
             <div className="panel-label">COMMAND</div>
+            <div className="step-list">
+              {commandSteps.map((step) => (
+                <article className={`step-card status-${step.status}`} key={step.id}>
+                  <div className="step-top">
+                    <span className="tiny-label">{step.label}</span>
+                    <span className="status-chip subtle">{step.status}</span>
+                  </div>
+                  <strong>{step.title}</strong>
+                  <div className="entry-note">{step.detail}</div>
+                </article>
+              ))}
+            </div>
             <article className="agent-card">
               <div className="agent-card-head">
                 <strong>{selectedAgent?.name}</strong>
@@ -650,7 +702,7 @@ function App() {
               <div className="entry-note">
                 {latestEntry
                   ? `${latestEntry.agentName} entered via ${latestEntry.budgetSource} for $${latestEntry.amount.toFixed(2)}`
-                  : "Install once, register once, then enter any live competition."}
+                  : "Flow: pick an agent, register it once, then use protocol or wallet budget to enter a live mode."}
               </div>
             </form>
           </section>
