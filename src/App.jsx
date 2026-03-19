@@ -11,6 +11,25 @@ const fallbackArenaState = {
     label: "Main Arena Login",
     address: "0xa11ce00000000000000000000000000000000001",
   },
+  vaults: {
+    protocol: {
+      key: "protocol",
+      label: "Protocol Vault",
+      role: "starter budget",
+      availableAllowance: 0.01,
+      dailyAllowance: 0.01,
+      lifetimeFunded: 0,
+    },
+    wallet: {
+      key: "wallet",
+      label: "Wallet Vault",
+      principal: 100,
+      todayYield: 0.08,
+      availableAllowance: 0.07,
+      lifetimeFunded: 0,
+      withdrawablePrincipal: 100,
+    },
+  },
   principal: 100,
   todayYield: 0.08,
   playBudget: 0.08,
@@ -88,6 +107,24 @@ const fallbackArenaState = {
     protocol: { key: "protocol", label: "Protocol Budget", available: 0.01 },
     wallet: { key: "wallet", label: "Wallet Budget", available: 0.07 },
   },
+  fundingLedger: [
+    {
+      id: "ledger-yield-refresh",
+      type: "yield_refresh",
+      label: "Daily yield refreshed",
+      source: "wallet",
+      amount: 0.08,
+      createdAt: "2026-03-19T15:00:00.000Z",
+    },
+    {
+      id: "ledger-protocol-start",
+      type: "starter_budget",
+      label: "Protocol starter budget loaded",
+      source: "protocol",
+      amount: 0.01,
+      createdAt: "2026-03-19T15:01:00.000Z",
+    },
+  ],
   budgetLedger: [
     {
       id: "ledger-yield-refresh",
@@ -106,6 +143,7 @@ const fallbackArenaState = {
       createdAt: "2026-03-19T15:01:00.000Z",
     },
   ],
+  competitionWallets: {},
   registrations: {},
   entryHistory: [],
 };
@@ -135,6 +173,8 @@ function App() {
   const [arenaStatus, setArenaStatus] = useState("snapshot");
   const [isEntering, setIsEntering] = useState(false);
   const [entryError, setEntryError] = useState("");
+  const [walletActionError, setWalletActionError] = useState("");
+  const [walletActionNotice, setWalletActionNotice] = useState("");
   const [lastEntry, setLastEntry] = useState(null);
   const [registrationForm, setRegistrationForm] = useState({
     nickname: "DragonBot",
@@ -328,6 +368,8 @@ function App() {
   async function handleRegisterAgent(event) {
     event.preventDefault();
     setRegistrationError("");
+    setWalletActionError("");
+    setWalletActionNotice("");
     setIsRegistering(true);
 
     try {
@@ -359,6 +401,8 @@ function App() {
     setIsResetting(true);
     setEntryError("");
     setRegistrationError("");
+    setWalletActionError("");
+    setWalletActionNotice("");
 
     try {
       const response = await fetch("/api/arena/reset", {
@@ -408,6 +452,10 @@ function App() {
   );
 
   const selectedAgentRegistration = arenaState.registrations?.[arenaState.selectedAgentId];
+  const selectedCompetitionWallet =
+    arenaState.competitionWallets?.[
+      `${arenaState.selectedAgentId}:${arenaState.selectedCompetitionId}`
+    ] ?? null;
   const selectedBudget =
     arenaState.budgetSources[arenaState.selectedBudgetSource] ??
     Object.values(arenaState.budgetSources)[0];
@@ -432,7 +480,7 @@ function App() {
         ? "Syncing current arena state"
         : selectedAgentRegistration
         ? `${selectedAgentRegistration.nickname} wallet is ready`
-        : "Generate a new checkers wallet linked to the main login",
+        : "Provision a competition wallet linked to the main login",
       status: !arenaLoaded ? "syncing" : selectedAgentRegistration ? "done" : "required",
     },
     {
@@ -440,7 +488,7 @@ function App() {
       label: "Step 3",
       title: "Enter the live competition",
       detail: competitionIsLive
-        ? `${selectedBudget?.label ?? "Budget"} · ${budgetReady ? "budget ready" : "insufficient budget"}`
+        ? `${selectedBudget?.label ?? "Budget"} · ${budgetReady ? "top-up ready" : "insufficient allowance"}`
         : "Select a live competition first",
       status:
         competitionIsLive && budgetReady && selectedAgentRegistration
@@ -454,6 +502,8 @@ function App() {
   async function handleEnterCompetition() {
     setIsEntering(true);
     setEntryError("");
+    setWalletActionError("");
+    setWalletActionNotice("");
 
     try {
       if (!selectedAgentRegistration) {
@@ -477,6 +527,11 @@ function App() {
       setArenaLoaded(true);
       setArenaStatus("live");
       setLastEntry(data.entry);
+      setWalletActionNotice(
+        data.topUp
+          ? `Auto topped up ${data.topUp.amount.toFixed(2)} from ${data.topUp.source} into the competition wallet.`
+          : "Competition wallet had enough balance to enter directly."
+      );
 
       if (data.entry?.externalUrl) {
         window.open(data.entry.externalUrl, "_blank", "noopener,noreferrer");
@@ -488,6 +543,74 @@ function App() {
     }
   }
 
+  async function handleTopUpCompetitionWallet() {
+    setWalletActionError("");
+    setWalletActionNotice("");
+
+    try {
+      if (!selectedAgentRegistration) {
+        throw new Error("register this agent first");
+      }
+
+      const response = await fetch("/api/arena/top-up", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          agentId: arenaState.selectedAgentId,
+          competitionId: arenaState.selectedCompetitionId,
+          source: arenaState.selectedBudgetSource,
+        }),
+      });
+
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data?.error ?? `HTTP ${response.status}`);
+      }
+
+      setArenaState(data.arenaState);
+      setArenaLoaded(true);
+      setArenaStatus("live");
+      setWalletActionNotice(
+        `Funded ${data.topUp.amount.toFixed(2)} from ${data.topUp.source} into the competition wallet.`
+      );
+    } catch (error) {
+      setWalletActionError(error.message || "top-up failed");
+    }
+  }
+
+  async function handleSweepCompetitionWallet() {
+    setWalletActionError("");
+    setWalletActionNotice("");
+
+    try {
+      if (!selectedCompetitionWallet?.balance) {
+        throw new Error("competition wallet has no balance to sweep");
+      }
+
+      const response = await fetch("/api/arena/sweep", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          agentId: arenaState.selectedAgentId,
+          competitionId: arenaState.selectedCompetitionId,
+          destination: "wallet",
+        }),
+      });
+
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data?.error ?? `HTTP ${response.status}`);
+      }
+
+      setArenaState(data.arenaState);
+      setArenaLoaded(true);
+      setArenaStatus("live");
+      setWalletActionNotice(`Swept ${data.sweep.amount.toFixed(2)} back into wallet budget.`);
+    } catch (error) {
+      setWalletActionError(error.message || "sweep failed");
+    }
+  }
+
   const metrics = [
     ["Principal", `${arenaState.principal} USDC`],
     ["Today's Yield", arenaState.todayYield.toFixed(2)],
@@ -495,7 +618,7 @@ function App() {
   ];
 
   const recentEntries = arenaState.entryHistory.slice(0, 3);
-  const recentLedger = arenaState.budgetLedger.slice(0, 3);
+  const recentLedger = (arenaState.fundingLedger ?? arenaState.budgetLedger).slice(0, 3);
   const latestEntry = lastEntry ?? arenaState.entryHistory[0] ?? null;
   const selectedAgentEntries = arenaState.entryHistory.filter(
     (entry) => entry.agentId === selectedAgent?.id
@@ -638,6 +761,38 @@ function App() {
                   <span>{selectedAgentRegistration.address}</span>
                 </div>
               ) : null}
+              {selectedCompetitionWallet ? (
+                <div className="agent-stat-grid">
+                  <div>
+                    <span className="tiny-label">wallet balance</span>
+                    <strong>{(selectedCompetitionWallet.balance ?? 0).toFixed(2)}</strong>
+                  </div>
+                  <div>
+                    <span className="tiny-label">funded by protocol</span>
+                    <strong>{(selectedCompetitionWallet.fundedTotals?.protocol ?? 0).toFixed(2)}</strong>
+                  </div>
+                  <div>
+                    <span className="tiny-label">funded by wallet</span>
+                    <strong>{(selectedCompetitionWallet.fundedTotals?.wallet ?? 0).toFixed(2)}</strong>
+                  </div>
+                </div>
+              ) : null}
+              {selectedCompetitionWallet ? (
+                <div className="agent-stat-grid">
+                  <div>
+                    <span className="tiny-label">spent total</span>
+                    <strong>{(selectedCompetitionWallet.spentTotal ?? 0).toFixed(2)}</strong>
+                  </div>
+                  <div>
+                    <span className="tiny-label">swept back</span>
+                    <strong>{(selectedCompetitionWallet.sweptTotal ?? 0).toFixed(2)}</strong>
+                  </div>
+                  <div>
+                    <span className="tiny-label">last funding</span>
+                    <strong>{selectedCompetitionWallet.lastFundingSource ?? "none"}</strong>
+                  </div>
+                </div>
+              ) : null}
             </article>
 
             <div className="budget-picker">
@@ -681,7 +836,23 @@ function App() {
                   {isResetting ? "Resetting..." : "Reset Demo"}
                 </button>
                 <button className="secondary-button" type="submit" disabled={isRegistering}>
-                  {isRegistering ? "Creating..." : "Create Checkers Wallet"}
+                  {isRegistering ? "Creating..." : "Provision Game Wallet"}
+                </button>
+                <button
+                  className="secondary-button"
+                  onClick={handleTopUpCompetitionWallet}
+                  type="button"
+                  disabled={!selectedAgentRegistration}
+                >
+                  Top Up Wallet
+                </button>
+                <button
+                  className="ghost-button"
+                  onClick={handleSweepCompetitionWallet}
+                  type="button"
+                  disabled={!selectedCompetitionWallet?.balance}
+                >
+                  Sweep Back
                 </button>
                 <button
                   className="action-button"
@@ -702,16 +873,23 @@ function App() {
               </div>
 
               {registrationError ? <div className="entry-note error">{registrationError}</div> : null}
+              {walletActionError ? <div className="entry-note error">{walletActionError}</div> : null}
               {entryError ? <div className="entry-note error">{entryError}</div> : null}
               {selectedAgentRegistration ? (
                 <div className="entry-note">
-                  A new Tempo wallet was generated for {selectedAgentRegistration.nickname} and linked to the main arena login.
+                  A new Tempo competition wallet was generated for {selectedAgentRegistration.nickname} and linked to the main arena login.
                 </div>
               ) : null}
+              {selectedCompetitionWallet ? (
+                <div className="entry-note">
+                  Selected vault allowance tops up the competition wallet first. Match entry then spends from that wallet, not from principal.
+                </div>
+              ) : null}
+              {walletActionNotice ? <div className="entry-note">{walletActionNotice}</div> : null}
               <div className="entry-note">
                 {latestEntry
-                  ? `${latestEntry.agentName} entered via ${latestEntry.budgetSource} for $${latestEntry.amount.toFixed(2)}`
-                  : "Flow: pick an agent, register it once, then use protocol or wallet budget to enter a live mode."}
+                  ? `${latestEntry.agentName} entered via ${latestEntry.budgetSource}${latestEntry.walletAddress ? ` using ${latestEntry.walletAddress.slice(0, 8)}...` : ""} for $${latestEntry.amount.toFixed(2)}`
+                  : "Flow: pick an agent, provision a competition wallet, top it up from protocol or wallet allowance, then enter a live mode."}
               </div>
             </form>
           </section>

@@ -228,6 +228,10 @@ a {
   gap: 6px;
 }
 
+.agent-stat-line.stacked span:last-child {
+  overflow-wrap: anywhere;
+}
+
 .hero-summary {
   margin-top: 12px;
   color: var(--muted);
@@ -288,6 +292,10 @@ a {
   justify-content: space-between;
   gap: 12px;
   align-items: center;
+}
+
+.command-actions {
+  flex-wrap: wrap;
 }
 
 .competition-card-top strong,
@@ -446,7 +454,7 @@ a {
 .action-button,
 .secondary-button,
 .ghost-button {
-  flex: 1;
+  flex: 1 1 160px;
   min-height: 42px;
   padding: 10px 14px;
   border: 1px solid var(--line-strong);
