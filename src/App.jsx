@@ -137,6 +137,7 @@ function App() {
   const [registrationStatus, setRegistrationStatus] = useState({});
   const [isRegistering, setIsRegistering] = useState(false);
   const [registrationError, setRegistrationError] = useState("");
+  const [isResetting, setIsResetting] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -349,6 +350,35 @@ function App() {
       setRegistrationError(error.message || "registration failed");
     } finally {
       setIsRegistering(false);
+    }
+  }
+
+  async function handleResetDemo() {
+    setIsResetting(true);
+    setEntryError("");
+    setRegistrationError("");
+
+    try {
+      const response = await fetch("/api/arena/reset", {
+        method: "POST",
+      });
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+
+      const data = await response.json();
+      setArenaState(data);
+      setArenaStatus("live");
+      setLastEntry(null);
+      setRegistrationStatus({});
+      setRegistrationForm({
+        nickname: data.agents[0]?.name ?? "DragonBot",
+        address: "",
+      });
+    } catch {
+      setArenaStatus("snapshot");
+    } finally {
+      setIsResetting(false);
     }
   }
 
@@ -586,6 +616,14 @@ function App() {
               </div>
 
               <div className="command-actions">
+                <button
+                  className="ghost-button"
+                  onClick={handleResetDemo}
+                  type="button"
+                  disabled={isResetting}
+                >
+                  {isResetting ? "Resetting..." : "Reset Demo"}
+                </button>
                 <button className="secondary-button" type="submit" disabled={isRegistering}>
                   {isRegistering ? "Registering..." : "Register Agent"}
                 </button>

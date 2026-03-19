@@ -394,7 +394,8 @@ a {
 }
 
 .action-button,
-.secondary-button {
+.secondary-button,
+.ghost-button {
   flex: 1;
   min-height: 42px;
   padding: 10px 14px;
@@ -413,8 +414,15 @@ a {
   color: var(--text);
 }
 
+.ghost-button {
+  background: transparent;
+  color: var(--muted);
+  border-color: var(--line);
+}
+
 .action-button:disabled,
-.secondary-button:disabled {
+.secondary-button:disabled,
+.ghost-button:disabled {
   opacity: 0.55;
   cursor: wait;
 }

@@ -1,104 +1,112 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 
-const arenaState = {
-  principal: 100,
-  todayYield: 0.08,
-  playBudget: 0.08,
-  selectedAgentId: "dragonbot",
-  selectedBudgetSource: "protocol",
-  selectedCompetitionId: "mpp-checkers",
-  agents: [
-    {
-      id: "dragonbot",
-      name: "DragonBot",
-      style: "balanced",
-      status: "ready",
-      wins: 4,
-      entries: 6,
-      roi: "+18%",
-      preferredCompetition: "MPP Checkers",
+function createInitialArenaState() {
+  return {
+    principal: 100,
+    todayYield: 0.08,
+    playBudget: 0.08,
+    selectedAgentId: "dragonbot",
+    selectedBudgetSource: "protocol",
+    selectedCompetitionId: "mpp-checkers",
+    agents: [
+      {
+        id: "dragonbot",
+        name: "DragonBot",
+        style: "balanced",
+        status: "ready",
+        wins: 4,
+        entries: 6,
+        roi: "+18%",
+        preferredCompetition: "MPP Checkers",
+      },
+      {
+        id: "scout-v2",
+        name: "Scout_V2",
+        style: "defensive",
+        status: "active",
+        wins: 2,
+        entries: 4,
+        roi: "+6%",
+        preferredCompetition: "Private Challenges",
+      },
+      {
+        id: "oracle-prime",
+        name: "Oracle_Prime",
+        style: "aggressive",
+        status: "trial",
+        wins: 1,
+        entries: 2,
+        roi: "-2%",
+        preferredCompetition: "Builder Competitions",
+      },
+    ],
+    competitions: [
+      {
+        id: "mpp-checkers",
+        label: "today",
+        title: "MPP Checkers",
+        status: "live",
+        entryPrice: 0.01,
+        payout: 0.019,
+        refund: 0.009,
+        externalUrl: "https://mpp-checkers.com/",
+        summary: "Live 1v1 board competition with MPP-priced entry and public scoreboard.",
+      },
+      {
+        id: "private-challenges",
+        label: "next",
+        title: "Private Challenges",
+        status: "next",
+        entryPrice: 0.01,
+        payout: 0.02,
+        refund: 0,
+        externalUrl: "",
+        summary: "Direct agent-vs-agent rooms funded by wallet yield and settled inside the arena.",
+      },
+      {
+        id: "builder-competitions",
+        label: "open",
+        title: "Builder Competitions",
+        status: "open",
+        entryPrice: 0,
+        payout: 0,
+        refund: 0,
+        externalUrl: "",
+        summary: "Adapter-based competition slots for new games, tools, and experimental 1v1 formats.",
+      },
+    ],
+    budgetSources: {
+      protocol: { key: "protocol", label: "Protocol Budget", available: 0.01 },
+      wallet: { key: "wallet", label: "Wallet Budget", available: 0.07 },
     },
-    {
-      id: "scout-v2",
-      name: "Scout_V2",
-      style: "defensive",
-      status: "active",
-      wins: 2,
-      entries: 4,
-      roi: "+6%",
-      preferredCompetition: "Private Challenges",
-    },
-    {
-      id: "oracle-prime",
-      name: "Oracle_Prime",
-      style: "aggressive",
-      status: "trial",
-      wins: 1,
-      entries: 2,
-      roi: "-2%",
-      preferredCompetition: "Builder Competitions",
-    },
-  ],
-  competitions: [
-    {
-      id: "mpp-checkers",
-      label: "today",
-      title: "MPP Checkers",
-      status: "live",
-      entryPrice: 0.01,
-      payout: 0.019,
-      refund: 0.009,
-      externalUrl: "https://mpp-checkers.com/",
-      summary: "Live 1v1 board competition with MPP-priced entry and public scoreboard.",
-    },
-    {
-      id: "private-challenges",
-      label: "next",
-      title: "Private Challenges",
-      status: "next",
-      entryPrice: 0.01,
-      payout: 0.02,
-      refund: 0,
-      externalUrl: "",
-      summary: "Direct agent-vs-agent rooms funded by wallet yield and settled inside the arena.",
-    },
-    {
-      id: "builder-competitions",
-      label: "open",
-      title: "Builder Competitions",
-      status: "open",
-      entryPrice: 0,
-      payout: 0,
-      refund: 0,
-      externalUrl: "",
-      summary: "Adapter-based competition slots for new games, tools, and experimental 1v1 formats.",
-    },
-  ],
-  budgetSources: {
-    protocol: { key: "protocol", label: "Protocol Budget", available: 0.01 },
-    wallet: { key: "wallet", label: "Wallet Budget", available: 0.07 },
-  },
-  budgetLedger: [
-    {
-      id: "ledger-yield-refresh",
-      type: "yield_refresh",
-      label: "Daily yield refreshed",
-      source: "wallet",
-      amount: 0.08,
-      createdAt: "2026-03-19T15:00:00.000Z",
-    },
-    {
-      id: "ledger-protocol-start",
-      type: "starter_budget",
-      label: "Protocol starter budget loaded",
-      source: "protocol",
-      amount: 0.01,
-      createdAt: "2026-03-19T15:01:00.000Z",
-    },
-  ],
-  entryHistory: [],
-};
+    budgetLedger: [
+      {
+        id: "ledger-yield-refresh",
+        type: "yield_refresh",
+        label: "Daily yield refreshed",
+        source: "wallet",
+        amount: 0.08,
+        createdAt: "2026-03-19T15:00:00.000Z",
+      },
+      {
+        id: "ledger-protocol-start",
+        type: "starter_budget",
+        label: "Protocol starter budget loaded",
+        source: "protocol",
+        amount: 0.01,
+        createdAt: "2026-03-19T15:01:00.000Z",
+      },
+    ],
+    entryHistory: [],
+  };
+}
+
+const arenaState = createInitialArenaState();
+
+function resetArenaState() {
+  Object.assign(arenaState, createInitialArenaState());
+}
 
 function json(res, statusCode, payload) {
   res.statusCode = statusCode;
@@ -128,6 +136,16 @@ function arenaDevApi() {
     name: "arena-dev-api",
     configureServer(server) {
       server.middlewares.use("/api/arena/state", (_req, res) => {
+        json(res, 200, arenaState);
+      });
+
+      server.middlewares.use("/api/arena/reset", (req, res) => {
+        if (req.method !== "POST") {
+          json(res, 405, { error: "method not allowed" });
+          return;
+        }
+
+        resetArenaState();
         json(res, 200, arenaState);
       });
 
