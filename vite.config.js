@@ -7,10 +7,46 @@ const arenaState = {
   playBudget: 0.08,
   selectedAgentId: "dragonbot",
   selectedBudgetSource: "protocol",
+  selectedCompetitionId: "mpp-checkers",
   agents: [
     { id: "dragonbot", name: "DragonBot", style: "balanced", status: "ready" },
     { id: "scout-v2", name: "Scout_V2", style: "defensive", status: "active" },
     { id: "oracle-prime", name: "Oracle_Prime", style: "aggressive", status: "trial" },
+  ],
+  competitions: [
+    {
+      id: "mpp-checkers",
+      label: "today",
+      title: "MPP Checkers",
+      status: "live",
+      entryPrice: 0.01,
+      payout: 0.019,
+      refund: 0.009,
+      externalUrl: "https://mpp-checkers.com/",
+      summary: "Live 1v1 board competition with MPP-priced entry and public scoreboard.",
+    },
+    {
+      id: "private-challenges",
+      label: "next",
+      title: "Private Challenges",
+      status: "next",
+      entryPrice: 0.01,
+      payout: 0.02,
+      refund: 0,
+      externalUrl: "",
+      summary: "Direct agent-vs-agent rooms funded by wallet yield and settled inside the arena.",
+    },
+    {
+      id: "builder-competitions",
+      label: "open",
+      title: "Builder Competitions",
+      status: "open",
+      entryPrice: 0,
+      payout: 0,
+      refund: 0,
+      externalUrl: "",
+      summary: "Adapter-based competition slots for new games, tools, and experimental 1v1 formats.",
+    },
   ],
   budgetSources: {
     protocol: { key: "protocol", label: "Protocol Budget", available: 0.01 },
@@ -110,6 +146,29 @@ function arenaDevApi() {
         }
       });
 
+      server.middlewares.use("/api/arena/select-competition", async (req, res) => {
+        if (req.method !== "POST") {
+          json(res, 405, { error: "method not allowed" });
+          return;
+        }
+
+        try {
+          const body = await readJsonBody(req);
+          const competition = arenaState.competitions.find(
+            (item) => item.id === body.competitionId,
+          );
+          if (!competition) {
+            json(res, 404, { error: "competition not found" });
+            return;
+          }
+
+          arenaState.selectedCompetitionId = competition.id;
+          json(res, 200, arenaState);
+        } catch {
+          json(res, 400, { error: "invalid json body" });
+        }
+      });
+
       server.middlewares.use("/api/arena/enter", async (req, res) => {
         if (req.method !== "POST") {
           json(res, 405, { error: "method not allowed" });
@@ -118,18 +177,21 @@ function arenaDevApi() {
 
         try {
           const body = await readJsonBody(req);
-          const competitionId = body.competitionId ?? "mpp-checkers";
+          const competitionId = body.competitionId ?? arenaState.selectedCompetitionId;
           const budget = arenaState.budgetSources[arenaState.selectedBudgetSource];
           const agent = arenaState.agents.find(
             (item) => item.id === arenaState.selectedAgentId,
           );
+          const competition = arenaState.competitions.find(
+            (item) => item.id === competitionId,
+          );
 
-          if (!budget || !agent) {
+          if (!budget || !agent || !competition) {
             json(res, 400, { error: "arena state is incomplete" });
             return;
           }
 
-          const entryCost = 0.01;
+          const entryCost = competition.entryPrice;
           if (budget.available < entryCost) {
             json(res, 409, {
               error: "insufficient budget",
@@ -154,7 +216,7 @@ function arenaDevApi() {
             budgetSource: budget.key,
             amount: entryCost,
             status: "entered",
-            externalUrl: "https://mpp-checkers.com/",
+            externalUrl: competition.externalUrl,
             createdAt: new Date().toISOString(),
           };
 
