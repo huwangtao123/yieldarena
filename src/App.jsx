@@ -131,6 +131,7 @@ function App() {
   const [contenderStats, setContenderStats] = useState(null);
   const [scoreStatus, setScoreStatus] = useState("snapshot");
   const [arenaState, setArenaState] = useState(fallbackArenaState);
+  const [arenaLoaded, setArenaLoaded] = useState(false);
   const [arenaStatus, setArenaStatus] = useState("snapshot");
   const [isEntering, setIsEntering] = useState(false);
   const [entryError, setEntryError] = useState("");
@@ -177,9 +178,11 @@ function App() {
         const data = await response.json();
         if (!active) return;
         setArenaState(data);
+        setArenaLoaded(true);
         setArenaStatus("live");
       } catch {
         if (!active) return;
+        setArenaLoaded(false);
         setArenaStatus("snapshot");
       }
     }
@@ -291,6 +294,7 @@ function App() {
 
     const data = await response.json();
     setArenaState(data);
+    setArenaLoaded(true);
     setArenaStatus("live");
   }
 
@@ -342,6 +346,7 @@ function App() {
       }
 
       setArenaState(data.arenaState);
+      setArenaLoaded(true);
       setArenaStatus("live");
     } catch (error) {
       setRegistrationError(error.message || "registration failed");
@@ -365,12 +370,14 @@ function App() {
 
       const data = await response.json();
       setArenaState(data);
+      setArenaLoaded(true);
       setArenaStatus("live");
       setLastEntry(null);
       setRegistrationForm({
         nickname: data.agents[0]?.name ?? "DragonBot",
       });
     } catch {
+      setArenaLoaded(false);
       setArenaStatus("snapshot");
     } finally {
       setIsResetting(false);
@@ -421,10 +428,12 @@ function App() {
       id: "step-2",
       label: "Step 2",
       title: "Register for MPP Checkers",
-      detail: selectedAgentRegistration
+      detail: !arenaLoaded
+        ? "Syncing current arena state"
+        : selectedAgentRegistration
         ? `${selectedAgentRegistration.nickname} wallet is ready`
         : "Generate a new checkers wallet linked to the main login",
-      status: selectedAgentRegistration ? "done" : "required",
+      status: !arenaLoaded ? "syncing" : selectedAgentRegistration ? "done" : "required",
     },
     {
       id: "step-3",
@@ -465,6 +474,7 @@ function App() {
       }
 
       setArenaState(data.arenaState);
+      setArenaLoaded(true);
       setArenaStatus("live");
       setLastEntry(data.entry);
 
@@ -608,7 +618,9 @@ function App() {
               </div>
               <div className="agent-stat-line">
                 <span className="tiny-label">checkers identity</span>
-                <span>{selectedAgentRegistration ? "registered" : "not registered"}</span>
+                <span>
+                  {!arenaLoaded ? "syncing" : selectedAgentRegistration ? "registered" : "not registered"}
+                </span>
               </div>
               <div className="agent-stat-line stacked">
                 <span className="tiny-label">main login wallet</span>
