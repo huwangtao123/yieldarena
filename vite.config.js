@@ -1,14 +1,20 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import { randomBytes } from "node:crypto";
+import { execFile } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import path from "node:path";
+import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const dataDir = path.join(__dirname, ".data");
 const registrationsPath = path.join(dataDir, "registrations.json");
 const competitionWalletsPath = path.join(dataDir, "competition-wallets.json");
+const execFileAsync = promisify(execFile);
+const tempoBinPath = process.env.HOME
+  ? path.join(process.env.HOME, ".local", "bin", "tempo")
+  : "/Users/taowang/.local/bin/tempo";
 
 function createInitialArenaState() {
   const initialLedger = [
@@ -132,6 +138,7 @@ function createInitialArenaState() {
       wallet: { key: "wallet", label: "Wallet Budget", available: 0.07 },
     },
     competitionWallets: {},
+    liveCompetitionEntries: {},
     fundingLedger: initialLedger,
     budgetLedger: initialLedger,
     registrations: {},
@@ -370,6 +377,28 @@ function json(res, statusCode, payload) {
   res.statusCode = statusCode;
   res.setHeader("Content-Type", "application/json");
   res.end(JSON.stringify(payload));
+}
+
+async function runTempoRequestJson(url, args = []) {
+  const { stdout } = await execFileAsync(
+    tempoBinPath,
+    ["request", "-s", ...args, url],
+    {
+      timeout: 45000,
+      maxBuffer: 1024 * 1024,
+    },
+  );
+
+  return JSON.parse(stdout);
+}
+
+async function fetchGameState(gameId) {
+  const response = await fetch(`https://mpp-checkers.com/games/${gameId}`);
+  if (!response.ok) {
+    throw new Error(`failed to load game state (${response.status})`);
+  }
+
+  return response.json();
 }
 
 function readJsonBody(req) {
@@ -692,6 +721,45 @@ function arenaDevApi() {
             topUp = fundingResult.ledgerItem;
           }
 
+          let remoteJoin = null;
+          let remoteState = null;
+          let liveEntry = null;
+
+          if (competitionId === "mpp-checkers") {
+            remoteJoin = await runTempoRequestJson("https://mpp-checkers.com/games", [
+              "-X",
+              "POST",
+            ]);
+            remoteState = await fetchGameState(remoteJoin.game_id);
+            const actualPlayerNickname = remoteJoin.color === "black"
+              ? remoteState.black
+              : remoteState.red;
+
+            liveEntry = {
+              agentId: agent.id,
+              competitionId,
+              gameId: remoteJoin.game_id,
+              color: remoteJoin.color,
+              status: remoteState.status ?? remoteJoin.status,
+              turn: remoteState.turn ?? remoteJoin.turn,
+              winner: remoteState.winner ?? null,
+              opponent:
+                remoteJoin.color === "black" ? remoteState.red ?? null : remoteState.black ?? null,
+              participantMode:
+                registration.address === arenaState.mainLoginWallet.address
+                  ? "native"
+                  : "delegated_main_wallet",
+              payerWallet: arenaState.mainLoginWallet.address,
+              payerNickname: actualPlayerNickname ?? null,
+              registeredWallet: registration.address,
+              registeredNickname: registration.nickname,
+              joinedAt: new Date().toISOString(),
+              lastSyncedAt: new Date().toISOString(),
+            };
+
+            arenaState.liveCompetitionEntries[walletKey] = liveEntry;
+          }
+
           competitionWallet.balance = roundMoney(competitionWallet.balance - entryCost);
           competitionWallet.spentTotal = roundMoney(
             competitionWallet.spentTotal + entryCost,
@@ -705,9 +773,15 @@ function arenaDevApi() {
             agentName: agent.name,
             budgetSource: budget.key,
             walletAddress: competitionWallet.address,
+            payerWallet: arenaState.mainLoginWallet.address,
             amount: entryCost,
             status: "entered",
             externalUrl: competition.externalUrl,
+            matchId: remoteJoin?.game_id ?? null,
+            matchStatus: remoteState?.status ?? remoteJoin?.status ?? null,
+            color: remoteJoin?.color ?? null,
+            participantMode: liveEntry?.participantMode ?? "simulated",
+            actualPlayerNickname: liveEntry?.payerNickname ?? null,
             createdAt: new Date().toISOString(),
           };
 
@@ -732,10 +806,12 @@ function arenaDevApi() {
           json(res, 200, {
             entry,
             topUp,
+            remoteJoin,
+            liveEntry,
             arenaState,
           });
-        } catch {
-          json(res, 400, { error: "invalid json body" });
+        } catch (error) {
+          json(res, 400, { error: error.message || "invalid json body" });
         }
       });
     },

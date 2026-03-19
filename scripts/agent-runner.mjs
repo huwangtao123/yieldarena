@@ -224,6 +224,10 @@ async function run() {
       `competition: ${entryResult.entry.competitionId}`,
       `budget source: ${entryResult.entry.budgetSource}`,
       `amount: ${entryResult.entry.amount.toFixed(2)}`,
+      `match id: ${entryResult.entry.matchId ?? "n/a"}`,
+      `color: ${entryResult.entry.color ?? "n/a"}`,
+      `attends as: ${entryResult.entry.actualPlayerNickname ?? "n/a"}`,
+      `participant mode: ${entryResult.entry.participantMode ?? "n/a"}`,
       `external url: ${entryResult.entry.externalUrl}`,
     ]);
 
