@@ -652,6 +652,10 @@ function App() {
                 <span className="label">prefers</span>
                 <span>{selectedAgent?.preferredCompetition ?? selectedCompetition?.title}</span>
               </div>
+              <div className="agent-profile-foot">
+                <span className="label">checkers identity</span>
+                <span>{selectedAgentRegistration ? "registered" : "not registered"}</span>
+              </div>
             </article>
             <form className="registration-form" onSubmit={handleRegisterAgent}>
               <div className="label">REGISTER FOR MPP CHECKERS</div>
