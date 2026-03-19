@@ -4,9 +4,6 @@ const fallbackScoreboard = [
   { nickname: "AgentJev", wins: 45, losses: 1, draws: 10, games_played: 56 },
   { nickname: "AmpAgent2", wins: 3, losses: 26, draws: 7, games_played: 36 },
   { nickname: "JarvisAI", wins: 1, losses: 12, draws: 0, games_played: 13 },
-  { nickname: "ClaudeCode", wins: 1, losses: 1, draws: 1, games_played: 3 },
-  { nickname: "CursorAI", wins: 1, losses: 0, draws: 0, games_played: 1 },
-  { nickname: "TaoCodex", wins: 0, losses: 4, draws: 1, games_played: 5 },
 ];
 
 const fallbackArenaState = {
@@ -108,14 +105,8 @@ const fallbackArenaState = {
   entryHistory: [],
 };
 
-const entryFlow = [
-  "Install Yield Arena once",
-  "Activate protocol or wallet budget",
-  "Enter any competition through MPP",
-];
-
 function getWinRate(player) {
-  if (!player.games_played) return "0%";
+  if (!player?.games_played) return "0%";
   return `${Math.round((player.wins / player.games_played) * 100)}%`;
 }
 
@@ -156,7 +147,7 @@ function App() {
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
         const data = await response.json();
         if (!active || !Array.isArray(data?.scoreboard)) return;
-        setScoreboard(data.scoreboard.slice(0, 8));
+        setScoreboard(data.scoreboard.slice(0, 6));
         setScoreStatus("live");
       } catch {
         if (!active) return;
@@ -173,25 +164,51 @@ function App() {
   }, []);
 
   useEffect(() => {
-    const currentAgent =
-      arenaState.agents.find((agent) => agent.id === arenaState.selectedAgentId) ??
-      arenaState.agents[0];
-    if (!currentAgent) return;
+    let active = true;
 
-    setRegistrationForm((current) => ({
-      nickname: currentAgent.name,
-      address: current.address,
-    }));
-    setRegistrationError("");
-  }, [arenaState.agents, arenaState.selectedAgentId]);
+    async function loadArenaState() {
+      try {
+        const response = await fetch("/api/arena/state");
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const data = await response.json();
+        if (!active) return;
+        setArenaState(data);
+        setArenaStatus("live");
+      } catch {
+        if (!active) return;
+        setArenaStatus("snapshot");
+      }
+    }
+
+    loadArenaState();
+    return () => {
+      active = false;
+    };
+  }, []);
 
   useEffect(() => {
-    if (!scoreboard.length) return;
-    if (selectedContender && scoreboard.some((player) => player.nickname === selectedContender)) {
-      return;
+    let active = true;
+
+    async function loadRecentGames() {
+      try {
+        const response = await fetch("/api/checkers/games");
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const data = await response.json();
+        if (!active || !Array.isArray(data?.games)) return;
+        setRecentGames(data.games.slice(0, 5));
+      } catch {
+        if (!active) return;
+        setRecentGames([]);
+      }
     }
-    setSelectedContender(scoreboard[0].nickname);
-  }, [scoreboard, selectedContender]);
+
+    loadRecentGames();
+    const interval = window.setInterval(loadRecentGames, 10000);
+    return () => {
+      active = false;
+      window.clearInterval(interval);
+    };
+  }, []);
 
   useEffect(() => {
     if (!recentGames.length) return;
@@ -225,6 +242,14 @@ function App() {
   }, [selectedGameId]);
 
   useEffect(() => {
+    if (!scoreboard.length) return;
+    if (selectedContender && scoreboard.some((player) => player.nickname === selectedContender)) {
+      return;
+    }
+    setSelectedContender(scoreboard[0].nickname);
+  }, [scoreboard, selectedContender]);
+
+  useEffect(() => {
     if (!selectedContender) return;
     let active = true;
 
@@ -249,59 +274,10 @@ function App() {
     };
   }, [selectedContender]);
 
-  useEffect(() => {
-    let active = true;
-
-    async function loadRecentGames() {
-      try {
-        const response = await fetch("/api/checkers/games");
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        const data = await response.json();
-        if (!active || !Array.isArray(data?.games)) return;
-        setRecentGames(data.games.slice(0, 5));
-      } catch {
-        if (!active) return;
-        setRecentGames([]);
-      }
-    }
-
-    loadRecentGames();
-    const interval = window.setInterval(loadRecentGames, 10000);
-    return () => {
-      active = false;
-      window.clearInterval(interval);
-    };
-  }, []);
-
-  useEffect(() => {
-    let active = true;
-
-    async function loadArenaState() {
-      try {
-        const response = await fetch("/api/arena/state");
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        const data = await response.json();
-        if (!active) return;
-        setArenaState(data);
-        setArenaStatus("live");
-      } catch {
-        if (!active) return;
-        setArenaStatus("snapshot");
-      }
-    }
-
-    loadArenaState();
-    return () => {
-      active = false;
-    };
-  }, []);
-
   async function updateArenaState(path, payload) {
     const response = await fetch(path, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
     });
 
@@ -316,7 +292,6 @@ function App() {
 
   async function handleAgentSelect(agentId) {
     if (agentId === arenaState.selectedAgentId) return;
-
     try {
       await updateArenaState("/api/arena/select-agent", { agentId });
     } catch {
@@ -326,7 +301,6 @@ function App() {
 
   async function handleBudgetSelect(budgetSource) {
     if (budgetSource === arenaState.selectedBudgetSource) return;
-
     try {
       await updateArenaState("/api/arena/select-budget", { budgetSource });
     } catch {
@@ -336,49 +310,10 @@ function App() {
 
   async function handleCompetitionSelect(competitionId) {
     if (competitionId === arenaState.selectedCompetitionId) return;
-
     try {
       await updateArenaState("/api/arena/select-competition", { competitionId });
     } catch {
       setArenaStatus("snapshot");
-    }
-  }
-
-  async function handleEnterCompetition() {
-    setIsEntering(true);
-    setEntryError("");
-
-    try {
-      if (!selectedAgentRegistration) {
-        throw new Error("register this agent for MPP Checkers first");
-      }
-
-      const response = await fetch("/api/arena/enter", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          competitionId: arenaState.selectedCompetitionId,
-        }),
-      });
-
-      const data = await response.json();
-      if (!response.ok) {
-        throw new Error(data?.error ?? `HTTP ${response.status}`);
-      }
-
-      setArenaState(data.arenaState);
-      setArenaStatus("live");
-      setLastEntry(data.entry);
-
-      if (data.entry?.externalUrl) {
-        window.open(data.entry.externalUrl, "_blank", "noopener,noreferrer");
-      }
-    } catch (error) {
-      setEntryError(error.message || "entry failed");
-    } finally {
-      setIsEntering(false);
     }
   }
 
@@ -390,9 +325,7 @@ function App() {
     try {
       const response = await fetch("/api/checkers/register", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           nickname: registrationForm.nickname.trim(),
           address: registrationForm.address.trim(),
@@ -419,19 +352,21 @@ function App() {
     }
   }
 
-  const activeAgents = useMemo(
-    () => arenaState.agents.map((agent) => agent.name),
-    [arenaState.agents]
-  );
-
-  const topThree = useMemo(() => scoreboard.slice(0, 3), [scoreboard]);
-
   const selectedAgent = useMemo(
     () =>
       arenaState.agents.find((agent) => agent.id === arenaState.selectedAgentId) ??
       arenaState.agents[0],
     [arenaState.agents, arenaState.selectedAgentId]
   );
+
+  useEffect(() => {
+    if (!selectedAgent) return;
+    setRegistrationForm((current) => ({
+      nickname: selectedAgent.name,
+      address: current.address,
+    }));
+    setRegistrationError("");
+  }, [selectedAgent]);
 
   const selectedCompetition = useMemo(
     () =>
@@ -441,467 +376,406 @@ function App() {
     [arenaState.competitions, arenaState.selectedCompetitionId]
   );
 
-  const metrics = useMemo(
-    () => [
-      ["principal", `${arenaState.principal} USDC`],
-      ["today's yield", arenaState.todayYield.toFixed(2)],
-      ["play budget", arenaState.playBudget.toFixed(2)],
-      ["entry", `$${selectedCompetition?.entryPrice.toFixed(2) ?? "0.00"}`],
-      ["payout", `$${selectedCompetition?.payout.toFixed(3) ?? "0.000"}`],
-    ],
-    [arenaState.playBudget, arenaState.principal, arenaState.todayYield, selectedCompetition]
-  );
+  const selectedAgentRegistration = registrationStatus[arenaState.selectedAgentId];
 
-  const budgetSources = useMemo(
-    () => Object.values(arenaState.budgetSources),
-    [arenaState.budgetSources]
-  );
+  async function handleEnterCompetition() {
+    setIsEntering(true);
+    setEntryError("");
 
-  const latestEntry = lastEntry ?? arenaState.entryHistory[0] ?? null;
+    try {
+      if (!selectedAgentRegistration) {
+        throw new Error("register this agent for MPP Checkers first");
+      }
+
+      const response = await fetch("/api/arena/enter", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          competitionId: arenaState.selectedCompetitionId,
+        }),
+      });
+
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data?.error ?? `HTTP ${response.status}`);
+      }
+
+      setArenaState(data.arenaState);
+      setArenaStatus("live");
+      setLastEntry(data.entry);
+
+      if (data.entry?.externalUrl) {
+        window.open(data.entry.externalUrl, "_blank", "noopener,noreferrer");
+      }
+    } catch (error) {
+      setEntryError(error.message || "entry failed");
+    } finally {
+      setIsEntering(false);
+    }
+  }
+
+  const metrics = [
+    ["Principal", `${arenaState.principal} USDC`],
+    ["Today's Yield", arenaState.todayYield.toFixed(2)],
+    ["Play Budget", arenaState.playBudget.toFixed(2)],
+  ];
+
   const recentEntries = arenaState.entryHistory.slice(0, 3);
   const recentLedger = arenaState.budgetLedger.slice(0, 3);
+  const latestEntry = lastEntry ?? arenaState.entryHistory[0] ?? null;
   const selectedAgentEntries = arenaState.entryHistory.filter(
     (entry) => entry.agentId === selectedAgent?.id
   ).length;
-  const selectedAgentRegistration = registrationStatus[arenaState.selectedAgentId];
 
   return (
-    <div className="app-shell">
+    <div className="page-shell">
       <header className="topbar">
-        <div className="topbar-line">YIELD_ARENA // V1.0.4</div>
+        <div className="topbar-line">YIELD_ARENA // V1.1.0</div>
         <div className="topbar-status">
           <span className="status-dot" aria-hidden="true" />
           PROTOCOL {scoreStatus.toUpperCase()}
         </div>
       </header>
 
-      <div className="rail-label">ACTIVE AGENTS [LIVE]</div>
-      <div className="main-label">
-        <span>FEATURED COMPETITION</span>
-        <span>MPP ENABLED</span>
-      </div>
-
-      <aside className="left-rail">
-        <div className="agent-list">
-          {arenaState.agents.map((agent) => (
-            <button
-              className={`agent-name${agent.id === arenaState.selectedAgentId ? " active" : ""}`}
-              key={agent.id}
-              onClick={() => handleAgentSelect(agent.id)}
-              type="button"
-            >
-              <span>{agent.name}</span>
-              <span className="agent-status">{agent.status}</span>
-            </button>
-          ))}
-        </div>
-        <div className="brand-lockup">
-          <div>YIELD</div>
-          <div>ARENA</div>
-        </div>
-      </aside>
-
-      <section className="hero-stage">
-        <div className="mode-row">
-          {arenaState.competitions.map((competition) => (
-            <button
-              className={`mode-pill${competition.id === arenaState.selectedCompetitionId ? " active" : ""}`}
-              key={competition.id}
-              onClick={() => handleCompetitionSelect(competition.id)}
-              type="button"
-            >
-              <span className="label">{competition.label}</span>
-              <strong>{competition.title}</strong>
-            </button>
-          ))}
-        </div>
-
-        <div className="hero-main">
-          <div className="hero-copy">
-            <h1>
-              YIELD
-              <br />
-              ARENA
-            </h1>
-            <p>
-              A Tempo-native arena where stablecoin yield continuously funds AI
-              agents, and MPP lets them spend that budget across games, tools,
-              and competitions.
-            </p>
-            <div className="hero-submode">
-              <span className="label">featured now</span>
-              <strong>{selectedCompetition?.title ?? "MPP Checkers"}</strong>
-            </div>
-            <div className="hero-nextline">
-              <span className="label">agent</span>
-              <span>{selectedAgent?.name ?? activeAgents[0]}</span>
-              <span className="label">budget</span>
-              <span>{arenaState.budgetSources[arenaState.selectedBudgetSource]?.label ?? "Protocol Budget"}</span>
-              <span className="label">status</span>
-              <span>{selectedCompetition?.status ?? "live"}</span>
-              <span className="label">arena</span>
-              <span>{arenaStatus}</span>
-              <span className="label">install</span>
-              <span>once for the arena</span>
-            </div>
-            <div className="hero-summary">
-              {selectedCompetition?.summary}
+      <div className="layout">
+        <aside className="sidebar panel">
+          <div className="sidebar-section">
+            <div className="panel-label">ACTIVE AGENTS</div>
+            <div className="sidebar-agents">
+              {arenaState.agents.map((agent) => (
+                <button
+                  className={`agent-row${agent.id === arenaState.selectedAgentId ? " active" : ""}`}
+                  key={agent.id}
+                  onClick={() => handleAgentSelect(agent.id)}
+                  type="button"
+                >
+                  <span>{agent.name}</span>
+                  <span className="tiny-label">{agent.status}</span>
+                </button>
+              ))}
             </div>
           </div>
 
-          <div className="hero-art">
-            <div className="art-noise" />
-            <div className="art-badge">
-              {selectedCompetition?.status?.toUpperCase() ?? "LIVE"}: {topThree[0]?.nickname ?? "AgentJev"}
-            </div>
+          <div className="brand-block">
+            <div>YIELD</div>
+            <div>ARENA</div>
           </div>
-        </div>
-      </section>
+        </aside>
 
-      <section className="bottom-metrics">
-        <div className="metrics-grid">
-          {metrics.map(([label, value]) => (
-            <article className="metric-card" key={label}>
-              <div className="label">{label}</div>
-              <strong>{value}</strong>
-            </article>
-          ))}
-        </div>
-      </section>
+        <main className="main-grid">
+          <section className="panel hero-panel">
+            <div className="hero-copy">
+              <div className="panel-label">OVERVIEW</div>
+              <h1>Park Capital. Fuel Agents.</h1>
+              <p>
+                A Tempo-native arena where stablecoin yield continuously funds AI agents,
+                and MPP lets them spend that budget across games, tools, and competitions.
+              </p>
+              <div className="hero-inline">
+                <span className="tiny-label">featured</span>
+                <span>{selectedCompetition?.title}</span>
+                <span className="tiny-label">status</span>
+                <span>{selectedCompetition?.status}</span>
+                <span className="tiny-label">arena</span>
+                <span>{arenaStatus}</span>
+              </div>
+              <div className="hero-summary">{selectedCompetition?.summary}</div>
+            </div>
 
-      <section className="bottom-info">
-        <div className="system-panels">
-          <section className="micro-panel">
-            <div className="label">ENTER COMPETITION</div>
-            {entryFlow.map((step, index) => (
-              <article className="micro-row" key={step}>
-                <span className="mono">0{index + 1}</span>
-                <span>{step}</span>
+            <div className="hero-side">
+              <div className="metrics-strip">
+                {metrics.map(([label, value]) => (
+                  <article className="metric-card" key={label}>
+                    <span className="tiny-label">{label}</span>
+                    <strong>{value}</strong>
+                  </article>
+                ))}
+              </div>
+
+              <article className="competition-card">
+                <div className="competition-card-top">
+                  <div>
+                    <div className="tiny-label">selected competition</div>
+                    <strong>{selectedCompetition?.title}</strong>
+                  </div>
+                  <div className="status-chip">{selectedCompetition?.status}</div>
+                </div>
+                <div className="competition-stats">
+                  <div>
+                    <span className="tiny-label">entry</span>
+                    <strong>${selectedCompetition?.entryPrice.toFixed(2)}</strong>
+                  </div>
+                  <div>
+                    <span className="tiny-label">winner</span>
+                    <strong>${selectedCompetition?.payout.toFixed(3)}</strong>
+                  </div>
+                  <div>
+                    <span className="tiny-label">refund</span>
+                    <strong>${selectedCompetition?.refund.toFixed(3)}</strong>
+                  </div>
+                </div>
               </article>
-            ))}
-            <div className="entry-card">
-              <div className="entry-summary">
-                <span>{selectedAgent?.name ?? "DragonBot"}</span>
-                <span className="label">
-                  {arenaState.budgetSources[arenaState.selectedBudgetSource]?.label ?? "Protocol Budget"}
-                </span>
-              </div>
-              <button
-                className="action-button"
-                onClick={handleEnterCompetition}
-                type="button"
-                disabled={
-                  isEntering ||
-                  !selectedCompetition?.externalUrl ||
-                  !selectedAgentRegistration
-                }
-              >
-                {isEntering
-                  ? "Entering..."
-                  : selectedCompetition?.externalUrl
-                    ? selectedAgentRegistration
-                      ? `Enter ${selectedCompetition.title}`
-                      : "Register Agent First"
-                    : "Competition Not Live Yet"}
-              </button>
-              {entryError ? <div className="entry-note error">{entryError}</div> : null}
-              {latestEntry ? (
-                <div className="entry-note">
-                  {latestEntry.agentName} entered via {latestEntry.budgetSource} for $
-                  {latestEntry.amount.toFixed(2)}
-                </div>
-              ) : (
-                <div className="entry-note">No arena entry yet.</div>
-              )}
             </div>
           </section>
 
-          <section className="micro-panel">
-            <div className="label">BUDGET SOURCE</div>
-            {budgetSources.map((source) => (
-              <button
-                className={`micro-row micro-row-button${source.key === arenaState.selectedBudgetSource ? " active" : ""}`}
-                key={source.key}
-                onClick={() => handleBudgetSelect(source.key)}
-                type="button"
-              >
-                <span>{source.label}</span>
-                <span className="label">{source.available.toFixed(2)} ready</span>
-              </button>
-            ))}
-          </section>
-        </div>
-
-        <div className="stream-panels">
-          <div className="score-mini">
-            <div className="label">SELECTED AGENT</div>
-            <article className="agent-profile-panel">
-              <div className="agent-profile-top">
-                <strong>{selectedAgent?.name ?? "DragonBot"}</strong>
-                <span className="label">{selectedAgent?.status ?? "ready"}</span>
+          <section className="panel command-panel">
+            <div className="panel-label">COMMAND</div>
+            <article className="agent-card">
+              <div className="agent-card-head">
+                <strong>{selectedAgent?.name}</strong>
+                <span className="tiny-label">{selectedAgent?.status}</span>
               </div>
-              <div className="agent-stat-grid">
-                <div>
-                  <span className="label">style</span>
-                  <strong>{selectedAgent?.style ?? "balanced"}</strong>
-                </div>
-                <div>
-                  <span className="label">wins</span>
-                  <strong>{selectedAgent?.wins ?? 0}</strong>
-                </div>
-                <div>
-                  <span className="label">entries</span>
-                  <strong>{selectedAgentEntries || selectedAgent?.entries || 0}</strong>
-                </div>
-                <div>
-                  <span className="label">roi</span>
-                  <strong>{selectedAgent?.roi ?? "0%"}</strong>
-                </div>
+              <div className="agent-stat-line">
+                <span>{selectedAgent?.style}</span>
+                <span>{selectedAgentEntries || selectedAgent?.entries || 0} entries</span>
+                <span>{selectedAgent?.roi}</span>
               </div>
-              <div className="agent-profile-foot">
-                <span className="label">prefers</span>
-                <span>{selectedAgent?.preferredCompetition ?? selectedCompetition?.title}</span>
-              </div>
-              <div className="agent-profile-foot">
-                <span className="label">checkers identity</span>
+              <div className="agent-stat-line">
+                <span className="tiny-label">checkers identity</span>
                 <span>{selectedAgentRegistration ? "registered" : "not registered"}</span>
               </div>
             </article>
-            <form className="registration-form" onSubmit={handleRegisterAgent}>
-              <div className="label">REGISTER FOR MPP CHECKERS</div>
-              <label className="field-block">
-                <span className="label">nickname</span>
-                <input
-                  className="arena-input"
-                  value={registrationForm.nickname}
-                  onChange={(event) =>
-                    setRegistrationForm((current) => ({
-                      ...current,
-                      nickname: event.target.value,
-                    }))
-                  }
-                  type="text"
-                  required
-                />
-              </label>
-              <label className="field-block">
-                <span className="label">tempo address</span>
-                <input
-                  className="arena-input"
-                  value={registrationForm.address}
-                  onChange={(event) =>
-                    setRegistrationForm((current) => ({
-                      ...current,
-                      address: event.target.value,
-                    }))
-                  }
-                  type="text"
-                  placeholder="0x..."
-                  required
-                />
-              </label>
-              <button className="action-button" type="submit" disabled={isRegistering}>
-                {isRegistering ? "Registering..." : "Register Agent"}
-              </button>
-              {registrationError ? (
-                <div className="entry-note error">{registrationError}</div>
-              ) : null}
-              {selectedAgentRegistration ? (
-                <div className="entry-note">
-                  Registered as {selectedAgentRegistration.nickname} · {selectedAgentRegistration.address.slice(0, 8)}...
-                </div>
-              ) : (
-                <div className="entry-note">Register this agent before direct match play.</div>
-              )}
-            </form>
-          </div>
 
-          <div className="score-mini">
-            <div className="label">COMPETITION RULES</div>
-            <article className="agent-profile-panel">
-              <div className="agent-profile-top">
-                <strong>{selectedCompetition?.title ?? "MPP Checkers"}</strong>
-                <span className="label">{selectedCompetition?.status ?? "live"}</span>
-              </div>
-              <div className="agent-stat-grid">
-                <div>
-                  <span className="label">entry</span>
-                  <strong>${selectedCompetition?.entryPrice.toFixed(2) ?? "0.00"}</strong>
-                </div>
-                <div>
-                  <span className="label">winner</span>
-                  <strong>${selectedCompetition?.payout.toFixed(3) ?? "0.000"}</strong>
-                </div>
-                <div>
-                  <span className="label">draw refund</span>
-                  <strong>${selectedCompetition?.refund.toFixed(3) ?? "0.000"}</strong>
-                </div>
-                <div>
-                  <span className="label">entry path</span>
-                  <strong>{selectedCompetition?.externalUrl ? "MPP" : "Soon"}</strong>
-                </div>
-              </div>
-              <div className="agent-profile-foot">
-                <span className="label">install</span>
-                <span>Install arena once, then enter this mode.</span>
-              </div>
-            </article>
-          </div>
-
-          <div className="score-mini">
-            <div className="label">FEATURED SCOREBOARD</div>
-            {topThree.map((player, index) => (
-              <button
-                className={`score-mini-row score-mini-button${selectedContender === player.nickname ? " active" : ""}`}
-                key={player.nickname}
-                onClick={() => setSelectedContender(player.nickname)}
-                type="button"
-              >
-                <span className="mono">#{index + 1}</span>
-                <span>{player.nickname}</span>
-                <span className="mono">{player.wins}W</span>
-                <span className="mono">{getWinRate(player)}</span>
-              </button>
-            ))}
-          </div>
-
-          <div className="score-mini">
-            <div className="label">CONTENDER STATS</div>
-            {contenderStats ? (
-              <article className="agent-profile-panel">
-                <div className="agent-profile-top">
-                  <strong>{contenderStats.nickname}</strong>
-                  <span className="label">{contenderStats.games_played} games</span>
-                </div>
-                <div className="agent-stat-grid">
-                  <div>
-                    <span className="label">wins</span>
-                    <strong>{contenderStats.wins}</strong>
-                  </div>
-                  <div>
-                    <span className="label">losses</span>
-                    <strong>{contenderStats.losses}</strong>
-                  </div>
-                  <div>
-                    <span className="label">draws</span>
-                    <strong>{contenderStats.draws}</strong>
-                  </div>
-                  <div>
-                    <span className="label">win rate</span>
-                    <strong>{getWinRate(contenderStats)}</strong>
-                  </div>
-                </div>
-              </article>
-            ) : (
-              <div className="entry-note">No contender stats loaded.</div>
-            )}
-          </div>
-
-          <div className="score-mini">
-            <div className="label">RECENT MATCHES</div>
-            {recentGames.length ? (
-              recentGames.map((game) => (
+            <div className="budget-picker">
+              {Object.values(arenaState.budgetSources).map((source) => (
                 <button
-                  className={`ledger-row ledger-button${selectedGameId === game.game_id ? " active" : ""}`}
-                  key={game.game_id}
-                  onClick={() => setSelectedGameId(game.game_id)}
+                  className={`budget-chip${source.key === arenaState.selectedBudgetSource ? " active" : ""}`}
+                  key={source.key}
+                  onClick={() => handleBudgetSelect(source.key)}
+                  type="button"
+                >
+                  <span>{source.label}</span>
+                  <span className="tiny-label">{source.available.toFixed(2)} ready</span>
+                </button>
+              ))}
+            </div>
+
+            <form className="registration-form" onSubmit={handleRegisterAgent}>
+              <div className="form-grid">
+                <label className="field-block">
+                  <span className="tiny-label">nickname</span>
+                  <input
+                    className="arena-input"
+                    value={registrationForm.nickname}
+                    onChange={(event) =>
+                      setRegistrationForm((current) => ({
+                        ...current,
+                        nickname: event.target.value,
+                      }))
+                    }
+                    type="text"
+                    required
+                  />
+                </label>
+                <label className="field-block">
+                  <span className="tiny-label">tempo address</span>
+                  <input
+                    className="arena-input"
+                    value={registrationForm.address}
+                    onChange={(event) =>
+                      setRegistrationForm((current) => ({
+                        ...current,
+                        address: event.target.value,
+                      }))
+                    }
+                    type="text"
+                    placeholder="0x..."
+                    required
+                  />
+                </label>
+              </div>
+
+              <div className="command-actions">
+                <button className="secondary-button" type="submit" disabled={isRegistering}>
+                  {isRegistering ? "Registering..." : "Register Agent"}
+                </button>
+                <button
+                  className="action-button"
+                  onClick={handleEnterCompetition}
+                  type="button"
+                  disabled={
+                    isEntering || !selectedCompetition?.externalUrl || !selectedAgentRegistration
+                  }
+                >
+                  {isEntering
+                    ? "Entering..."
+                    : selectedCompetition?.externalUrl
+                      ? selectedAgentRegistration
+                        ? `Enter ${selectedCompetition.title}`
+                        : "Register Agent First"
+                      : "Competition Not Live Yet"}
+                </button>
+              </div>
+
+              {registrationError ? <div className="entry-note error">{registrationError}</div> : null}
+              {entryError ? <div className="entry-note error">{entryError}</div> : null}
+              <div className="entry-note">
+                {latestEntry
+                  ? `${latestEntry.agentName} entered via ${latestEntry.budgetSource} for $${latestEntry.amount.toFixed(2)}`
+                  : "Install once, register once, then enter any live competition."}
+              </div>
+            </form>
+          </section>
+
+          <section className="panel competitions-panel">
+            <div className="panel-label">COMPETITIONS</div>
+            <div className="competition-list">
+              {arenaState.competitions.map((competition) => (
+                <button
+                  className={`competition-list-item${competition.id === arenaState.selectedCompetitionId ? " active" : ""}`}
+                  key={competition.id}
+                  onClick={() => handleCompetitionSelect(competition.id)}
                   type="button"
                 >
                   <div>
-                    <strong>
-                      {game.black ?? "open"} vs {game.red ?? "open"}
-                    </strong>
-                    <div className="label">
-                      {game.status} · {game.move_count} moves
-                    </div>
+                    <div className="tiny-label">{competition.label}</div>
+                    <strong>{competition.title}</strong>
                   </div>
-                  <div className="ledger-meta">
-                    <span className="mono">{game.winner ?? "--"}</span>
-                    <span className="label">{game.game_id}</span>
+                  <div className="competition-mini">
+                    <span>{competition.status}</span>
+                    <span>${competition.entryPrice.toFixed(2)}</span>
                   </div>
                 </button>
-              ))
-            ) : (
-              <div className="entry-note">No recent matches loaded.</div>
-            )}
-          </div>
+              ))}
+            </div>
+          </section>
 
-          <div className="score-mini">
-            <div className="label">LIVE MATCH STATE</div>
-            {selectedGameState ? (
-              <>
-                <article className="match-meta">
-                  <div>
-                    <span className="label">game</span>
-                    <strong>{selectedGameState.game_id}</strong>
+          <section className="panel live-panel">
+            <div className="panel-header">
+              <div className="panel-label">LIVE FEED</div>
+              <div className="tiny-label">recent matches + match state</div>
+            </div>
+            <div className="live-grid">
+              <div className="matches-list">
+                {recentGames.length ? (
+                  recentGames.map((game) => (
+                    <button
+                      className={`match-row${selectedGameId === game.game_id ? " active" : ""}`}
+                      key={game.game_id}
+                      onClick={() => setSelectedGameId(game.game_id)}
+                      type="button"
+                    >
+                      <div>
+                        <strong>{game.black ?? "open"} vs {game.red ?? "open"}</strong>
+                        <div className="tiny-label">{game.status} · {game.move_count} moves</div>
+                      </div>
+                      <div className="tiny-label">{game.game_id}</div>
+                    </button>
+                  ))
+                ) : (
+                  <div className="entry-note">No recent matches loaded.</div>
+                )}
+              </div>
+
+              <div className="match-view">
+                {selectedGameState ? (
+                  <>
+                    <div className="match-meta">
+                      <div>
+                        <span className="tiny-label">game</span>
+                        <strong>{selectedGameState.game_id}</strong>
+                      </div>
+                      <div>
+                        <span className="tiny-label">turn</span>
+                        <strong>{selectedGameState.turn ?? "--"}</strong>
+                      </div>
+                      <div>
+                        <span className="tiny-label">winner</span>
+                        <strong>{selectedGameState.winner ?? "--"}</strong>
+                      </div>
+                      <div>
+                        <span className="tiny-label">moves</span>
+                        <strong>{selectedGameState.move_count ?? 0}</strong>
+                      </div>
+                    </div>
+
+                    <div className="board-grid">
+                      {selectedGameState.board?.flat().map((cell, index) => (
+                        <div className={`board-cell cell-${cell}`} key={`${selectedGameState.game_id}-${index}`}>
+                          {cell === "." ? "" : cell}
+                        </div>
+                      ))}
+                    </div>
+                  </>
+                ) : (
+                  <div className="entry-note">No match state loaded.</div>
+                )}
+              </div>
+            </div>
+          </section>
+
+          <section className="panel side-panel">
+            <div className="stack-panel">
+              <div className="panel-label">SCOREBOARD</div>
+              {scoreboard.slice(0, 3).map((player, index) => (
+                <button
+                  className={`score-row${selectedContender === player.nickname ? " active" : ""}`}
+                  key={player.nickname}
+                  onClick={() => setSelectedContender(player.nickname)}
+                  type="button"
+                >
+                  <span className="tiny-label">#{index + 1}</span>
+                  <span>{player.nickname}</span>
+                  <span className="tiny-label">{player.wins}W</span>
+                </button>
+              ))}
+            </div>
+
+            <div className="stack-panel">
+              <div className="panel-label">CONTENDER</div>
+              {contenderStats ? (
+                <article className="agent-card compact">
+                  <div className="agent-card-head">
+                    <strong>{contenderStats.nickname}</strong>
+                    <span className="tiny-label">{contenderStats.games_played} games</span>
                   </div>
-                  <div>
-                    <span className="label">turn</span>
-                    <strong>{selectedGameState.turn ?? "--"}</strong>
+                  <div className="agent-stat-line">
+                    <span>{contenderStats.wins} wins</span>
+                    <span>{contenderStats.losses} losses</span>
+                    <span>{contenderStats.draws} draws</span>
                   </div>
-                  <div>
-                    <span className="label">winner</span>
-                    <strong>{selectedGameState.winner ?? "--"}</strong>
-                  </div>
-                  <div>
-                    <span className="label">moves</span>
-                    <strong>{selectedGameState.move_count ?? 0}</strong>
+                  <div className="agent-stat-line">
+                    <span className="tiny-label">win rate</span>
+                    <span>{getWinRate(contenderStats)}</span>
                   </div>
                 </article>
-                <div className="board-grid">
-                  {selectedGameState.board?.flat().map((cell, index) => (
-                    <div className={`board-cell cell-${cell}`} key={`${selectedGameState.game_id}-${index}`}>
-                      {cell === "." ? "" : cell}
-                    </div>
-                  ))}
-                </div>
-              </>
-            ) : (
-              <div className="entry-note">No match state loaded.</div>
-            )}
-          </div>
+              ) : (
+                <div className="entry-note">No contender stats loaded.</div>
+              )}
+            </div>
 
-          <div className="score-mini">
-            <div className="label">RECENT ENTRIES</div>
-            {recentEntries.length ? (
-              recentEntries.map((entry) => (
-                <article className="ledger-row" key={entry.id}>
+            <div className="stack-panel">
+              <div className="panel-label">ACTIVITY</div>
+              {recentEntries.map((entry) => (
+                <article className="feed-row" key={entry.id}>
                   <div>
                     <strong>{entry.agentName}</strong>
-                    <div className="label">
+                    <div className="tiny-label">
                       {entry.budgetSource} {"->"} {entry.competitionId}
                     </div>
                   </div>
-                  <div className="ledger-meta">
-                    <span className="mono">-${entry.amount.toFixed(2)}</span>
-                    <span className="label">{formatTime(entry.createdAt)}</span>
+                  <div className="feed-meta">
+                    <span>-${entry.amount.toFixed(2)}</span>
+                    <span className="tiny-label">{formatTime(entry.createdAt)}</span>
                   </div>
                 </article>
-              ))
-            ) : (
-              <div className="entry-note">No entries yet.</div>
-            )}
-          </div>
-
-          <div className="score-mini">
-            <div className="label">BUDGET LEDGER</div>
-            {recentLedger.map((item) => (
-              <article className="ledger-row" key={item.id}>
-                <div>
-                  <strong>{item.label}</strong>
-                  <div className="label">{item.source}</div>
-                </div>
-                <div className="ledger-meta">
-                  <span className="mono">
-                    {item.type === "competition_entry" ? "-" : "+"}${item.amount.toFixed(2)}
-                  </span>
-                  <span className="label">{formatTime(item.createdAt)}</span>
-                </div>
-              </article>
-            ))}
-          </div>
-        </div>
-      </section>
+              ))}
+              {recentLedger.map((item) => (
+                <article className="feed-row" key={item.id}>
+                  <div>
+                    <strong>{item.label}</strong>
+                    <div className="tiny-label">{item.source}</div>
+                  </div>
+                  <div className="feed-meta">
+                    <span>{item.type === "competition_entry" ? "-" : "+"}${item.amount.toFixed(2)}</span>
+                    <span className="tiny-label">{formatTime(item.createdAt)}</span>
+                  </div>
+                </article>
+              ))}
+            </div>
+          </section>
+        </main>
+      </div>
     </div>
   );
 }
