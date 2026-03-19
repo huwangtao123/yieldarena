@@ -15,10 +15,73 @@ const fallbackArenaState = {
   playBudget: 0.08,
   selectedAgentId: "dragonbot",
   selectedBudgetSource: "protocol",
+  selectedCompetitionId: "mpp-checkers",
   agents: [
-    { id: "dragonbot", name: "DragonBot", style: "balanced", status: "ready" },
-    { id: "scout-v2", name: "Scout_V2", style: "defensive", status: "active" },
-    { id: "oracle-prime", name: "Oracle_Prime", style: "aggressive", status: "trial" },
+    {
+      id: "dragonbot",
+      name: "DragonBot",
+      style: "balanced",
+      status: "ready",
+      wins: 4,
+      entries: 6,
+      roi: "+18%",
+      preferredCompetition: "MPP Checkers",
+    },
+    {
+      id: "scout-v2",
+      name: "Scout_V2",
+      style: "defensive",
+      status: "active",
+      wins: 2,
+      entries: 4,
+      roi: "+6%",
+      preferredCompetition: "Private Challenges",
+    },
+    {
+      id: "oracle-prime",
+      name: "Oracle_Prime",
+      style: "aggressive",
+      status: "trial",
+      wins: 1,
+      entries: 2,
+      roi: "-2%",
+      preferredCompetition: "Builder Competitions",
+    },
+  ],
+  competitions: [
+    {
+      id: "mpp-checkers",
+      label: "today",
+      title: "MPP Checkers",
+      status: "live",
+      entryPrice: 0.01,
+      payout: 0.019,
+      refund: 0.009,
+      externalUrl: "https://mpp-checkers.com/",
+      summary: "Live 1v1 board competition with MPP-priced entry and public scoreboard.",
+    },
+    {
+      id: "private-challenges",
+      label: "next",
+      title: "Private Challenges",
+      status: "next",
+      entryPrice: 0.01,
+      payout: 0.02,
+      refund: 0,
+      externalUrl: "",
+      summary: "Direct agent-vs-agent rooms funded by wallet yield and settled inside the arena.",
+    },
+    {
+      id: "builder-competitions",
+      label: "open",
+      title: "Builder Competitions",
+      status: "open",
+      entryPrice: 0,
+      payout: 0,
+      refund: 0,
+      externalUrl: "",
+      summary: "Adapter-based competition slots for new games, tools, and experimental 1v1 formats.",
+    },
   ],
   budgetSources: {
     protocol: { key: "protocol", label: "Protocol Budget", available: 0.01 },
@@ -241,6 +304,9 @@ function App() {
   const latestEntry = lastEntry ?? arenaState.entryHistory[0] ?? null;
   const recentEntries = arenaState.entryHistory.slice(0, 3);
   const recentLedger = arenaState.budgetLedger.slice(0, 3);
+  const selectedAgentEntries = arenaState.entryHistory.filter(
+    (entry) => entry.agentId === selectedAgent?.id
+  ).length;
 
   return (
     <div className="app-shell">
@@ -404,6 +470,38 @@ function App() {
         </div>
 
         <div className="stream-panels">
+          <div className="score-mini">
+            <div className="label">SELECTED AGENT</div>
+            <article className="agent-profile-panel">
+              <div className="agent-profile-top">
+                <strong>{selectedAgent?.name ?? "DragonBot"}</strong>
+                <span className="label">{selectedAgent?.status ?? "ready"}</span>
+              </div>
+              <div className="agent-stat-grid">
+                <div>
+                  <span className="label">style</span>
+                  <strong>{selectedAgent?.style ?? "balanced"}</strong>
+                </div>
+                <div>
+                  <span className="label">wins</span>
+                  <strong>{selectedAgent?.wins ?? 0}</strong>
+                </div>
+                <div>
+                  <span className="label">entries</span>
+                  <strong>{selectedAgentEntries || selectedAgent?.entries || 0}</strong>
+                </div>
+                <div>
+                  <span className="label">roi</span>
+                  <strong>{selectedAgent?.roi ?? "0%"}</strong>
+                </div>
+              </div>
+              <div className="agent-profile-foot">
+                <span className="label">prefers</span>
+                <span>{selectedAgent?.preferredCompetition ?? selectedCompetition?.title}</span>
+              </div>
+            </article>
+          </div>
+
           <div className="score-mini">
             <div className="label">FEATURED SCOREBOARD</div>
             {topThree.map((player, index) => (
