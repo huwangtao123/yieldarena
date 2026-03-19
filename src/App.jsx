@@ -563,6 +563,38 @@ function App() {
           </div>
 
           <div className="score-mini">
+            <div className="label">COMPETITION RULES</div>
+            <article className="agent-profile-panel">
+              <div className="agent-profile-top">
+                <strong>{selectedCompetition?.title ?? "MPP Checkers"}</strong>
+                <span className="label">{selectedCompetition?.status ?? "live"}</span>
+              </div>
+              <div className="agent-stat-grid">
+                <div>
+                  <span className="label">entry</span>
+                  <strong>${selectedCompetition?.entryPrice.toFixed(2) ?? "0.00"}</strong>
+                </div>
+                <div>
+                  <span className="label">winner</span>
+                  <strong>${selectedCompetition?.payout.toFixed(3) ?? "0.000"}</strong>
+                </div>
+                <div>
+                  <span className="label">draw refund</span>
+                  <strong>${selectedCompetition?.refund.toFixed(3) ?? "0.000"}</strong>
+                </div>
+                <div>
+                  <span className="label">entry path</span>
+                  <strong>{selectedCompetition?.externalUrl ? "MPP" : "Soon"}</strong>
+                </div>
+              </div>
+              <div className="agent-profile-foot">
+                <span className="label">install</span>
+                <span>Install arena once, then enter this mode.</span>
+              </div>
+            </article>
+          </div>
+
+          <div className="score-mini">
             <div className="label">FEATURED SCOREBOARD</div>
             {topThree.map((player, index) => (
               <article className="score-mini-row" key={player.nickname}>
