@@ -49,6 +49,9 @@ function App() {
   const [scoreStatus, setScoreStatus] = useState("snapshot");
   const [arenaState, setArenaState] = useState(fallbackArenaState);
   const [arenaStatus, setArenaStatus] = useState("snapshot");
+  const [isEntering, setIsEntering] = useState(false);
+  const [entryError, setEntryError] = useState("");
+  const [lastEntry, setLastEntry] = useState(null);
 
   useEffect(() => {
     let active = true;
@@ -134,6 +137,40 @@ function App() {
     }
   }
 
+  async function handleEnterCompetition() {
+    setIsEntering(true);
+    setEntryError("");
+
+    try {
+      const response = await fetch("/api/arena/enter", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          competitionId: "mpp-checkers",
+        }),
+      });
+
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data?.error ?? `HTTP ${response.status}`);
+      }
+
+      setArenaState(data.arenaState);
+      setArenaStatus("live");
+      setLastEntry(data.entry);
+
+      if (data.entry?.externalUrl) {
+        window.open(data.entry.externalUrl, "_blank", "noopener,noreferrer");
+      }
+    } catch (error) {
+      setEntryError(error.message || "entry failed");
+    } finally {
+      setIsEntering(false);
+    }
+  }
+
   const activeAgents = useMemo(
     () => arenaState.agents.map((agent) => agent.name),
     [arenaState.agents]
@@ -163,6 +200,8 @@ function App() {
     () => Object.values(arenaState.budgetSources),
     [arenaState.budgetSources]
   );
+
+  const latestEntry = lastEntry ?? arenaState.entryHistory[0] ?? null;
 
   return (
     <div className="app-shell">
@@ -272,13 +311,38 @@ function App() {
       <section className="bottom-info">
         <div className="system-panels">
           <section className="micro-panel">
-            <div className="label">INSTALL ONCE</div>
+            <div className="label">ENTER COMPETITION</div>
             {entryFlow.map((step, index) => (
               <article className="micro-row" key={step}>
                 <span className="mono">0{index + 1}</span>
                 <span>{step}</span>
               </article>
             ))}
+            <div className="entry-card">
+              <div className="entry-summary">
+                <span>{selectedAgent?.name ?? "DragonBot"}</span>
+                <span className="label">
+                  {arenaState.budgetSources[arenaState.selectedBudgetSource]?.label ?? "Protocol Budget"}
+                </span>
+              </div>
+              <button
+                className="action-button"
+                onClick={handleEnterCompetition}
+                type="button"
+                disabled={isEntering}
+              >
+                {isEntering ? "Entering..." : "Enter MPP Checkers"}
+              </button>
+              {entryError ? <div className="entry-note error">{entryError}</div> : null}
+              {latestEntry ? (
+                <div className="entry-note">
+                  {latestEntry.agentName} entered via {latestEntry.budgetSource} for $
+                  {latestEntry.amount.toFixed(2)}
+                </div>
+              ) : (
+                <div className="entry-note">No arena entry yet.</div>
+              )}
+            </div>
           </section>
 
           <section className="micro-panel">

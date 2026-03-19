@@ -382,6 +382,21 @@ a {
   gap: 10px;
 }
 
+.entry-card {
+  margin-top: 8px;
+  padding-top: 14px;
+  border-top: 1px solid rgba(44, 244, 255, 0.16);
+  display: grid;
+  gap: 12px;
+}
+
+.entry-summary {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+}
+
 .micro-row {
   display: grid;
   grid-template-columns: 42px 1fr;
@@ -406,6 +421,40 @@ a {
 .micro-row-button:hover,
 .micro-row-button.active {
   color: var(--accent);
+}
+
+.action-button {
+  width: 100%;
+  border: 1px solid var(--line-bright);
+  background: rgba(44, 244, 255, 0.06);
+  color: var(--accent);
+  padding: 12px 14px;
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  cursor: pointer;
+  transition: background-color 160ms ease, box-shadow 160ms ease;
+}
+
+.action-button:hover:not(:disabled) {
+  background: rgba(44, 244, 255, 0.12);
+  box-shadow: 0 0 18px rgba(44, 244, 255, 0.12);
+}
+
+.action-button:disabled {
+  opacity: 0.65;
+  cursor: wait;
+}
+
+.entry-note {
+  font-size: 0.9rem;
+  line-height: 1.4;
+  color: var(--muted);
+}
+
+.entry-note.error {
+  color: #ff8f8f;
 }
 
 .score-mini {
