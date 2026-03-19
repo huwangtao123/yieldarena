@@ -131,6 +131,8 @@ function App() {
   const [recentGames, setRecentGames] = useState([]);
   const [selectedGameId, setSelectedGameId] = useState("");
   const [selectedGameState, setSelectedGameState] = useState(null);
+  const [selectedContender, setSelectedContender] = useState("");
+  const [contenderStats, setContenderStats] = useState(null);
   const [scoreStatus, setScoreStatus] = useState("snapshot");
   const [arenaState, setArenaState] = useState(fallbackArenaState);
   const [arenaStatus, setArenaStatus] = useState("snapshot");
@@ -164,6 +166,14 @@ function App() {
   }, []);
 
   useEffect(() => {
+    if (!scoreboard.length) return;
+    if (selectedContender && scoreboard.some((player) => player.nickname === selectedContender)) {
+      return;
+    }
+    setSelectedContender(scoreboard[0].nickname);
+  }, [scoreboard, selectedContender]);
+
+  useEffect(() => {
     if (!recentGames.length) return;
     if (selectedGameId && recentGames.some((game) => game.game_id === selectedGameId)) return;
     setSelectedGameId(recentGames[0].game_id);
@@ -193,6 +203,31 @@ function App() {
       window.clearInterval(interval);
     };
   }, [selectedGameId]);
+
+  useEffect(() => {
+    if (!selectedContender) return;
+    let active = true;
+
+    async function loadContender() {
+      try {
+        const response = await fetch(`/api/checkers/players/${selectedContender}`);
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const data = await response.json();
+        if (!active) return;
+        setContenderStats(data.player ?? null);
+      } catch {
+        if (!active) return;
+        setContenderStats(null);
+      }
+    }
+
+    loadContender();
+    const interval = window.setInterval(loadContender, 15000);
+    return () => {
+      active = false;
+      window.clearInterval(interval);
+    };
+  }, [selectedContender]);
 
   useEffect(() => {
     let active = true;
@@ -597,13 +632,50 @@ function App() {
           <div className="score-mini">
             <div className="label">FEATURED SCOREBOARD</div>
             {topThree.map((player, index) => (
-              <article className="score-mini-row" key={player.nickname}>
+              <button
+                className={`score-mini-row score-mini-button${selectedContender === player.nickname ? " active" : ""}`}
+                key={player.nickname}
+                onClick={() => setSelectedContender(player.nickname)}
+                type="button"
+              >
                 <span className="mono">#{index + 1}</span>
                 <span>{player.nickname}</span>
                 <span className="mono">{player.wins}W</span>
                 <span className="mono">{getWinRate(player)}</span>
-              </article>
+              </button>
             ))}
+          </div>
+
+          <div className="score-mini">
+            <div className="label">CONTENDER STATS</div>
+            {contenderStats ? (
+              <article className="agent-profile-panel">
+                <div className="agent-profile-top">
+                  <strong>{contenderStats.nickname}</strong>
+                  <span className="label">{contenderStats.games_played} games</span>
+                </div>
+                <div className="agent-stat-grid">
+                  <div>
+                    <span className="label">wins</span>
+                    <strong>{contenderStats.wins}</strong>
+                  </div>
+                  <div>
+                    <span className="label">losses</span>
+                    <strong>{contenderStats.losses}</strong>
+                  </div>
+                  <div>
+                    <span className="label">draws</span>
+                    <strong>{contenderStats.draws}</strong>
+                  </div>
+                  <div>
+                    <span className="label">win rate</span>
+                    <strong>{getWinRate(contenderStats)}</strong>
+                  </div>
+                </div>
+              </article>
+            ) : (
+              <div className="entry-note">No contender stats loaded.</div>
+            )}
           </div>
 
           <div className="score-mini">
