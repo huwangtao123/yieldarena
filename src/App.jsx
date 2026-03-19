@@ -349,6 +349,10 @@ function App() {
     setEntryError("");
 
     try {
+      if (!selectedAgentRegistration) {
+        throw new Error("register this agent for MPP Checkers first");
+      }
+
       const response = await fetch("/api/arena/enter", {
         method: "POST",
         headers: {
@@ -586,12 +590,18 @@ function App() {
                 className="action-button"
                 onClick={handleEnterCompetition}
                 type="button"
-                disabled={isEntering || !selectedCompetition?.externalUrl}
+                disabled={
+                  isEntering ||
+                  !selectedCompetition?.externalUrl ||
+                  !selectedAgentRegistration
+                }
               >
                 {isEntering
                   ? "Entering..."
                   : selectedCompetition?.externalUrl
-                    ? `Enter ${selectedCompetition.title}`
+                    ? selectedAgentRegistration
+                      ? `Enter ${selectedCompetition.title}`
+                      : "Register Agent First"
                     : "Competition Not Live Yet"}
               </button>
               {entryError ? <div className="entry-note error">{entryError}</div> : null}
