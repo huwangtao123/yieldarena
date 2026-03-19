@@ -144,6 +144,7 @@ const fallbackArenaState = {
     },
   ],
   competitionWallets: {},
+  liveCompetitionEntries: {},
   registrations: {},
   entryHistory: [],
 };
@@ -456,6 +457,10 @@ function App() {
     arenaState.competitionWallets?.[
       `${arenaState.selectedAgentId}:${arenaState.selectedCompetitionId}`
     ] ?? null;
+  const selectedLiveCompetitionEntry =
+    arenaState.liveCompetitionEntries?.[
+      `${arenaState.selectedAgentId}:${arenaState.selectedCompetitionId}`
+    ] ?? null;
   const selectedBudget =
     arenaState.budgetSources[arenaState.selectedBudgetSource] ??
     Object.values(arenaState.budgetSources)[0];
@@ -527,15 +532,14 @@ function App() {
       setArenaLoaded(true);
       setArenaStatus("live");
       setLastEntry(data.entry);
+      if (data.entry?.matchId) {
+        setSelectedGameId(data.entry.matchId);
+      }
       setWalletActionNotice(
         data.topUp
           ? `Auto topped up ${data.topUp.amount.toFixed(2)} from ${data.topUp.source} into the competition wallet.`
           : "Competition wallet had enough balance to enter directly."
       );
-
-      if (data.entry?.externalUrl) {
-        window.open(data.entry.externalUrl, "_blank", "noopener,noreferrer");
-      }
     } catch (error) {
       setEntryError(error.message || "entry failed");
     } finally {
@@ -793,6 +797,22 @@ function App() {
                   </div>
                 </div>
               ) : null}
+              {selectedLiveCompetitionEntry ? (
+                <div className="agent-stat-grid">
+                  <div>
+                    <span className="tiny-label">live match</span>
+                    <strong>{selectedLiveCompetitionEntry.gameId}</strong>
+                  </div>
+                  <div>
+                    <span className="tiny-label">color</span>
+                    <strong>{selectedLiveCompetitionEntry.color}</strong>
+                  </div>
+                  <div>
+                    <span className="tiny-label">attends as</span>
+                    <strong>{selectedLiveCompetitionEntry.payerNickname ?? "pending"}</strong>
+                  </div>
+                </div>
+              ) : null}
             </article>
 
             <div className="budget-picker">
@@ -888,7 +908,7 @@ function App() {
               {walletActionNotice ? <div className="entry-note">{walletActionNotice}</div> : null}
               <div className="entry-note">
                 {latestEntry
-                  ? `${latestEntry.agentName} entered via ${latestEntry.budgetSource}${latestEntry.walletAddress ? ` using ${latestEntry.walletAddress.slice(0, 8)}...` : ""} for $${latestEntry.amount.toFixed(2)}`
+                  ? `${latestEntry.agentName} entered via ${latestEntry.budgetSource}${latestEntry.matchId ? ` · match ${latestEntry.matchId}` : ""}${latestEntry.actualPlayerNickname ? ` · attended as ${latestEntry.actualPlayerNickname}` : ""} for $${latestEntry.amount.toFixed(2)}`
                   : "Flow: pick an agent, provision a competition wallet, top it up from protocol or wallet allowance, then enter a live mode."}
               </div>
             </form>
