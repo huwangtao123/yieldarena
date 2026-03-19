@@ -24,6 +24,24 @@ const fallbackArenaState = {
     protocol: { key: "protocol", label: "Protocol Budget", available: 0.01 },
     wallet: { key: "wallet", label: "Wallet Budget", available: 0.07 },
   },
+  budgetLedger: [
+    {
+      id: "ledger-yield-refresh",
+      type: "yield_refresh",
+      label: "Daily yield refreshed",
+      source: "wallet",
+      amount: 0.08,
+      createdAt: "2026-03-19T15:00:00.000Z",
+    },
+    {
+      id: "ledger-protocol-start",
+      type: "starter_budget",
+      label: "Protocol starter budget loaded",
+      source: "protocol",
+      amount: 0.01,
+      createdAt: "2026-03-19T15:01:00.000Z",
+    },
+  ],
   entryHistory: [],
 };
 
@@ -42,6 +60,13 @@ const entryFlow = [
 function getWinRate(player) {
   if (!player.games_played) return "0%";
   return `${Math.round((player.wins / player.games_played) * 100)}%`;
+}
+
+function formatTime(value) {
+  return new Intl.DateTimeFormat("en-US", {
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(new Date(value));
 }
 
 function App() {
@@ -202,6 +227,8 @@ function App() {
   );
 
   const latestEntry = lastEntry ?? arenaState.entryHistory[0] ?? null;
+  const recentEntries = arenaState.entryHistory.slice(0, 3);
+  const recentLedger = arenaState.budgetLedger.slice(0, 3);
 
   return (
     <div className="app-shell">
@@ -361,16 +388,58 @@ function App() {
           </section>
         </div>
 
-        <div className="score-mini">
-          <div className="label">FEATURED SCOREBOARD</div>
-          {topThree.map((player, index) => (
-            <article className="score-mini-row" key={player.nickname}>
-              <span className="mono">#{index + 1}</span>
-              <span>{player.nickname}</span>
-              <span className="mono">{player.wins}W</span>
-              <span className="mono">{getWinRate(player)}</span>
-            </article>
-          ))}
+        <div className="stream-panels">
+          <div className="score-mini">
+            <div className="label">FEATURED SCOREBOARD</div>
+            {topThree.map((player, index) => (
+              <article className="score-mini-row" key={player.nickname}>
+                <span className="mono">#{index + 1}</span>
+                <span>{player.nickname}</span>
+                <span className="mono">{player.wins}W</span>
+                <span className="mono">{getWinRate(player)}</span>
+              </article>
+            ))}
+          </div>
+
+          <div className="score-mini">
+            <div className="label">RECENT ENTRIES</div>
+            {recentEntries.length ? (
+              recentEntries.map((entry) => (
+                <article className="ledger-row" key={entry.id}>
+                  <div>
+                    <strong>{entry.agentName}</strong>
+                    <div className="label">
+                      {entry.budgetSource} {"->"} {entry.competitionId}
+                    </div>
+                  </div>
+                  <div className="ledger-meta">
+                    <span className="mono">-${entry.amount.toFixed(2)}</span>
+                    <span className="label">{formatTime(entry.createdAt)}</span>
+                  </div>
+                </article>
+              ))
+            ) : (
+              <div className="entry-note">No entries yet.</div>
+            )}
+          </div>
+
+          <div className="score-mini">
+            <div className="label">BUDGET LEDGER</div>
+            {recentLedger.map((item) => (
+              <article className="ledger-row" key={item.id}>
+                <div>
+                  <strong>{item.label}</strong>
+                  <div className="label">{item.source}</div>
+                </div>
+                <div className="ledger-meta">
+                  <span className="mono">
+                    {item.type === "competition_entry" ? "-" : "+"}${item.amount.toFixed(2)}
+                  </span>
+                  <span className="label">{formatTime(item.createdAt)}</span>
+                </div>
+              </article>
+            ))}
+          </div>
         </div>
       </section>
     </div>
