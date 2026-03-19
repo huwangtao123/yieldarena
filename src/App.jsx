@@ -45,12 +45,6 @@ const fallbackArenaState = {
   entryHistory: [],
 };
 
-const modes = [
-  { label: "today", title: "MPP Checkers", active: true, href: "https://mpp-checkers.com/" },
-  { label: "next", title: "Private Challenges" },
-  { label: "open", title: "Builder Competitions" },
-];
-
 const entryFlow = [
   "Install Yield Arena once",
   "Activate protocol or wallet budget",
@@ -162,6 +156,16 @@ function App() {
     }
   }
 
+  async function handleCompetitionSelect(competitionId) {
+    if (competitionId === arenaState.selectedCompetitionId) return;
+
+    try {
+      await updateArenaState("/api/arena/select-competition", { competitionId });
+    } catch {
+      setArenaStatus("snapshot");
+    }
+  }
+
   async function handleEnterCompetition() {
     setIsEntering(true);
     setEntryError("");
@@ -173,7 +177,7 @@ function App() {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          competitionId: "mpp-checkers",
+          competitionId: arenaState.selectedCompetitionId,
         }),
       });
 
@@ -210,15 +214,23 @@ function App() {
     [arenaState.agents, arenaState.selectedAgentId]
   );
 
+  const selectedCompetition = useMemo(
+    () =>
+      arenaState.competitions.find(
+        (competition) => competition.id === arenaState.selectedCompetitionId
+      ) ?? arenaState.competitions[0],
+    [arenaState.competitions, arenaState.selectedCompetitionId]
+  );
+
   const metrics = useMemo(
     () => [
       ["principal", `${arenaState.principal} USDC`],
       ["today's yield", arenaState.todayYield.toFixed(2)],
       ["play budget", arenaState.playBudget.toFixed(2)],
-      ["entry", "$0.01"],
-      ["payout", "$0.019"],
+      ["entry", `$${selectedCompetition?.entryPrice.toFixed(2) ?? "0.00"}`],
+      ["payout", `$${selectedCompetition?.payout.toFixed(3) ?? "0.000"}`],
     ],
-    [arenaState.playBudget, arenaState.principal, arenaState.todayYield]
+    [arenaState.playBudget, arenaState.principal, arenaState.todayYield, selectedCompetition]
   );
 
   const budgetSources = useMemo(
@@ -268,25 +280,17 @@ function App() {
 
       <section className="hero-stage">
         <div className="mode-row">
-          {modes.map((mode) =>
-            mode.href ? (
-              <a
-                className={`mode-pill${mode.active ? " active" : ""}`}
-                href={mode.href}
-                key={mode.title}
-                target="_blank"
-                rel="noreferrer"
-              >
-                <span className="label">{mode.label}</span>
-                <strong>{mode.title}</strong>
-              </a>
-            ) : (
-              <div className={`mode-pill${mode.active ? " active" : ""}`} key={mode.title}>
-                <span className="label">{mode.label}</span>
-                <strong>{mode.title}</strong>
-              </div>
-            )
-          )}
+          {arenaState.competitions.map((competition) => (
+            <button
+              className={`mode-pill${competition.id === arenaState.selectedCompetitionId ? " active" : ""}`}
+              key={competition.id}
+              onClick={() => handleCompetitionSelect(competition.id)}
+              type="button"
+            >
+              <span className="label">{competition.label}</span>
+              <strong>{competition.title}</strong>
+            </button>
+          ))}
         </div>
 
         <div className="hero-main">
@@ -303,23 +307,30 @@ function App() {
             </p>
             <div className="hero-submode">
               <span className="label">featured now</span>
-              <strong>MPP Checkers</strong>
+              <strong>{selectedCompetition?.title ?? "MPP Checkers"}</strong>
             </div>
             <div className="hero-nextline">
               <span className="label">agent</span>
               <span>{selectedAgent?.name ?? activeAgents[0]}</span>
               <span className="label">budget</span>
               <span>{arenaState.budgetSources[arenaState.selectedBudgetSource]?.label ?? "Protocol Budget"}</span>
+              <span className="label">status</span>
+              <span>{selectedCompetition?.status ?? "live"}</span>
               <span className="label">arena</span>
               <span>{arenaStatus}</span>
               <span className="label">install</span>
               <span>once for the arena</span>
             </div>
+            <div className="hero-summary">
+              {selectedCompetition?.summary}
+            </div>
           </div>
 
           <div className="hero-art">
             <div className="art-noise" />
-            <div className="art-badge">CONTENDER: {topThree[0]?.nickname ?? "AgentJev"}</div>
+            <div className="art-badge">
+              {selectedCompetition?.status?.toUpperCase() ?? "LIVE"}: {topThree[0]?.nickname ?? "AgentJev"}
+            </div>
           </div>
         </div>
       </section>
@@ -356,9 +367,13 @@ function App() {
                 className="action-button"
                 onClick={handleEnterCompetition}
                 type="button"
-                disabled={isEntering}
+                disabled={isEntering || !selectedCompetition?.externalUrl}
               >
-                {isEntering ? "Entering..." : "Enter MPP Checkers"}
+                {isEntering
+                  ? "Entering..."
+                  : selectedCompetition?.externalUrl
+                    ? `Enter ${selectedCompetition.title}`
+                    : "Competition Not Live Yet"}
               </button>
               {entryError ? <div className="entry-note error">{entryError}</div> : null}
               {latestEntry ? (

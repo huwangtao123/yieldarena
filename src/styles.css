@@ -195,7 +195,10 @@ a {
   min-width: 160px;
   padding: 12px 14px;
   border: 1px solid var(--line-dark);
+  background: transparent;
   color: var(--muted);
+  text-align: left;
+  cursor: pointer;
   transition: border-color 160ms ease, color 160ms ease;
 }
 
@@ -266,6 +269,14 @@ a {
   gap: 8px 12px;
   align-items: center;
   font-size: 0.94rem;
+}
+
+.hero-summary {
+  margin-top: 14px;
+  max-width: 34rem;
+  color: var(--muted);
+  font-size: 0.92rem;
+  line-height: 1.5;
 }
 
 .hero-art {
