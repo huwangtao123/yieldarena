@@ -133,8 +133,34 @@ a {
 }
 
 .agent-name {
+  width: 100%;
+  border: 1px solid transparent;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  padding: 8px 10px;
   font-size: 1.08rem;
   letter-spacing: -0.02em;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  transition: border-color 160ms ease, color 160ms ease, background-color 160ms ease;
+}
+
+.agent-name:hover,
+.agent-name.active {
+  border-color: var(--line-bright);
+  color: var(--accent);
+  background: rgba(44, 244, 255, 0.05);
+}
+
+.agent-status {
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
 }
 
 .brand-lockup {
@@ -363,6 +389,23 @@ a {
   align-items: start;
   padding-top: 10px;
   border-top: 1px solid rgba(44, 244, 255, 0.16);
+}
+
+.micro-row-button {
+  width: 100%;
+  background: transparent;
+  border-left: none;
+  border-right: none;
+  border-bottom: none;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  grid-template-columns: 1fr auto;
+}
+
+.micro-row-button:hover,
+.micro-row-button.active {
+  color: var(--accent);
 }
 
 .score-mini {
