@@ -156,8 +156,10 @@ function App() {
     }
 
     loadScoreboard();
+    const interval = window.setInterval(loadScoreboard, 15000);
     return () => {
       active = false;
+      window.clearInterval(interval);
     };
   }, []);
 
@@ -185,8 +187,10 @@ function App() {
     }
 
     loadSelectedGame();
+    const interval = window.setInterval(loadSelectedGame, 8000);
     return () => {
       active = false;
+      window.clearInterval(interval);
     };
   }, [selectedGameId]);
 
@@ -207,8 +211,10 @@ function App() {
     }
 
     loadRecentGames();
+    const interval = window.setInterval(loadRecentGames, 10000);
     return () => {
       active = false;
+      window.clearInterval(interval);
     };
   }, []);
 
