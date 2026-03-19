@@ -128,6 +128,7 @@ function formatTime(value) {
 
 function App() {
   const [scoreboard, setScoreboard] = useState(fallbackScoreboard);
+  const [recentGames, setRecentGames] = useState([]);
   const [scoreStatus, setScoreStatus] = useState("snapshot");
   const [arenaState, setArenaState] = useState(fallbackArenaState);
   const [arenaStatus, setArenaStatus] = useState("snapshot");
@@ -153,6 +154,28 @@ function App() {
     }
 
     loadScoreboard();
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+
+    async function loadRecentGames() {
+      try {
+        const response = await fetch("/api/checkers/games");
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const data = await response.json();
+        if (!active || !Array.isArray(data?.games)) return;
+        setRecentGames(data.games.slice(0, 5));
+      } catch {
+        if (!active) return;
+        setRecentGames([]);
+      }
+    }
+
+    loadRecentGames();
     return () => {
       active = false;
     };
@@ -512,6 +535,30 @@ function App() {
                 <span className="mono">{getWinRate(player)}</span>
               </article>
             ))}
+          </div>
+
+          <div className="score-mini">
+            <div className="label">RECENT MATCHES</div>
+            {recentGames.length ? (
+              recentGames.map((game) => (
+                <article className="ledger-row" key={game.game_id}>
+                  <div>
+                    <strong>
+                      {game.black ?? "open"} vs {game.red ?? "open"}
+                    </strong>
+                    <div className="label">
+                      {game.status} · {game.move_count} moves
+                    </div>
+                  </div>
+                  <div className="ledger-meta">
+                    <span className="mono">{game.winner ?? "--"}</span>
+                    <span className="label">{game.game_id}</span>
+                  </div>
+                </article>
+              ))
+            ) : (
+              <div className="entry-note">No recent matches loaded.</div>
+            )}
           </div>
 
           <div className="score-mini">
