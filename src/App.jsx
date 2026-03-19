@@ -7,6 +7,10 @@ const fallbackScoreboard = [
 ];
 
 const fallbackArenaState = {
+  mainLoginWallet: {
+    label: "Main Arena Login",
+    address: "0xa11ce00000000000000000000000000000000001",
+  },
   principal: 100,
   todayYield: 0.08,
   playBudget: 0.08,
@@ -102,6 +106,7 @@ const fallbackArenaState = {
       createdAt: "2026-03-19T15:01:00.000Z",
     },
   ],
+  registrations: {},
   entryHistory: [],
 };
 
@@ -132,9 +137,7 @@ function App() {
   const [lastEntry, setLastEntry] = useState(null);
   const [registrationForm, setRegistrationForm] = useState({
     nickname: "DragonBot",
-    address: "",
   });
-  const [registrationStatus, setRegistrationStatus] = useState({});
   const [isRegistering, setIsRegistering] = useState(false);
   const [registrationError, setRegistrationError] = useState("");
   const [isResetting, setIsResetting] = useState(false);
@@ -324,12 +327,12 @@ function App() {
     setIsRegistering(true);
 
     try {
-      const response = await fetch("/api/checkers/register", {
+      const response = await fetch("/api/arena/register-checkers", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          agentId: arenaState.selectedAgentId,
           nickname: registrationForm.nickname.trim(),
-          address: registrationForm.address.trim(),
         }),
       });
 
@@ -338,14 +341,8 @@ function App() {
         throw new Error(data?.error ?? `HTTP ${response.status}`);
       }
 
-      setRegistrationStatus((current) => ({
-        ...current,
-        [arenaState.selectedAgentId]: {
-          nickname: data.player.nickname,
-          address: data.player.address,
-          createdAt: data.player.created_at,
-        },
-      }));
+      setArenaState(data.arenaState);
+      setArenaStatus("live");
     } catch (error) {
       setRegistrationError(error.message || "registration failed");
     } finally {
@@ -370,10 +367,8 @@ function App() {
       setArenaState(data);
       setArenaStatus("live");
       setLastEntry(null);
-      setRegistrationStatus({});
       setRegistrationForm({
         nickname: data.agents[0]?.name ?? "DragonBot",
-        address: "",
       });
     } catch {
       setArenaStatus("snapshot");
@@ -393,7 +388,6 @@ function App() {
     if (!selectedAgent) return;
     setRegistrationForm((current) => ({
       nickname: selectedAgent.name,
-      address: current.address,
     }));
     setRegistrationError("");
   }, [selectedAgent]);
@@ -406,7 +400,7 @@ function App() {
     [arenaState.competitions, arenaState.selectedCompetitionId]
   );
 
-  const selectedAgentRegistration = registrationStatus[arenaState.selectedAgentId];
+  const selectedAgentRegistration = arenaState.registrations?.[arenaState.selectedAgentId];
   const selectedBudget =
     arenaState.budgetSources[arenaState.selectedBudgetSource] ??
     Object.values(arenaState.budgetSources)[0];
@@ -428,8 +422,8 @@ function App() {
       label: "Step 2",
       title: "Register for MPP Checkers",
       detail: selectedAgentRegistration
-        ? `${selectedAgentRegistration.nickname} is ready`
-        : "Register this agent with a Tempo address",
+        ? `${selectedAgentRegistration.nickname} wallet is ready`
+        : "Generate a new checkers wallet linked to the main login",
       status: selectedAgentRegistration ? "done" : "required",
     },
     {
@@ -616,6 +610,16 @@ function App() {
                 <span className="tiny-label">checkers identity</span>
                 <span>{selectedAgentRegistration ? "registered" : "not registered"}</span>
               </div>
+              <div className="agent-stat-line stacked">
+                <span className="tiny-label">main login wallet</span>
+                <span>{arenaState.mainLoginWallet.address}</span>
+              </div>
+              {selectedAgentRegistration ? (
+                <div className="agent-stat-line stacked">
+                  <span className="tiny-label">generated checkers wallet</span>
+                  <span>{selectedAgentRegistration.address}</span>
+                </div>
+              ) : null}
             </article>
 
             <div className="budget-picker">
@@ -633,39 +637,21 @@ function App() {
             </div>
 
             <form className="registration-form" onSubmit={handleRegisterAgent}>
-              <div className="form-grid">
-                <label className="field-block">
-                  <span className="tiny-label">nickname</span>
-                  <input
-                    className="arena-input"
-                    value={registrationForm.nickname}
-                    onChange={(event) =>
-                      setRegistrationForm((current) => ({
-                        ...current,
-                        nickname: event.target.value,
-                      }))
-                    }
-                    type="text"
-                    required
-                  />
-                </label>
-                <label className="field-block">
-                  <span className="tiny-label">tempo address</span>
-                  <input
-                    className="arena-input"
-                    value={registrationForm.address}
-                    onChange={(event) =>
-                      setRegistrationForm((current) => ({
-                        ...current,
-                        address: event.target.value,
-                      }))
-                    }
-                    type="text"
-                    placeholder="0x..."
-                    required
-                  />
-                </label>
-              </div>
+              <label className="field-block">
+                <span className="tiny-label">checkers nickname</span>
+                <input
+                  className="arena-input"
+                  value={registrationForm.nickname}
+                  onChange={(event) =>
+                    setRegistrationForm((current) => ({
+                      ...current,
+                      nickname: event.target.value,
+                    }))
+                  }
+                  type="text"
+                  required
+                />
+              </label>
 
               <div className="command-actions">
                 <button
@@ -677,7 +663,7 @@ function App() {
                   {isResetting ? "Resetting..." : "Reset Demo"}
                 </button>
                 <button className="secondary-button" type="submit" disabled={isRegistering}>
-                  {isRegistering ? "Registering..." : "Register Agent"}
+                  {isRegistering ? "Creating..." : "Create Checkers Wallet"}
                 </button>
                 <button
                   className="action-button"
@@ -699,6 +685,11 @@ function App() {
 
               {registrationError ? <div className="entry-note error">{registrationError}</div> : null}
               {entryError ? <div className="entry-note error">{entryError}</div> : null}
+              {selectedAgentRegistration ? (
+                <div className="entry-note">
+                  A new Tempo wallet was generated for {selectedAgentRegistration.nickname} and linked to the main arena login.
+                </div>
+              ) : null}
               <div className="entry-note">
                 {latestEntry
                   ? `${latestEntry.agentName} entered via ${latestEntry.budgetSource} for $${latestEntry.amount.toFixed(2)}`

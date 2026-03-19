@@ -223,6 +223,11 @@ a {
   margin-top: 18px;
 }
 
+.agent-stat-line.stacked {
+  display: grid;
+  gap: 6px;
+}
+
 .hero-summary {
   margin-top: 12px;
   color: var(--muted);
