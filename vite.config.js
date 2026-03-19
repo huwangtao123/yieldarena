@@ -218,6 +218,15 @@ function arenaDevApi() {
             return;
           }
 
+          if (competition.status !== "live" || !competition.externalUrl) {
+            json(res, 409, {
+              error: "competition is not live",
+              competitionId: competition.id,
+              status: competition.status,
+            });
+            return;
+          }
+
           const entryCost = competition.entryPrice;
           if (budget.available < entryCost) {
             json(res, 409, {
