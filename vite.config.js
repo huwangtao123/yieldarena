@@ -16,6 +16,24 @@ const arenaState = {
     protocol: { key: "protocol", label: "Protocol Budget", available: 0.01 },
     wallet: { key: "wallet", label: "Wallet Budget", available: 0.07 },
   },
+  budgetLedger: [
+    {
+      id: "ledger-yield-refresh",
+      type: "yield_refresh",
+      label: "Daily yield refreshed",
+      source: "wallet",
+      amount: 0.08,
+      createdAt: "2026-03-19T15:00:00.000Z",
+    },
+    {
+      id: "ledger-protocol-start",
+      type: "starter_budget",
+      label: "Protocol starter budget loaded",
+      source: "protocol",
+      amount: 0.01,
+      createdAt: "2026-03-19T15:01:00.000Z",
+    },
+  ],
   entryHistory: [],
 };
 
@@ -140,7 +158,19 @@ function arenaDevApi() {
             createdAt: new Date().toISOString(),
           };
 
+          const ledgerItem = {
+            id: `ledger-${Date.now()}`,
+            type: "competition_entry",
+            label: `Entered ${competitionId}`,
+            source: budget.key,
+            amount: entryCost,
+            agentId: agent.id,
+            agentName: agent.name,
+            createdAt: entry.createdAt,
+          };
+
           arenaState.entryHistory.unshift(entry);
+          arenaState.budgetLedger.unshift(ledgerItem);
 
           json(res, 200, {
             entry,
