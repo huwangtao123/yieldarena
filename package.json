@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "vite --host",
     "build": "vite build",
-    "preview": "vite preview --host"
+    "preview": "vite preview --host",
+    "agent:run": "node scripts/agent-runner.mjs"
   },
   "dependencies": {
     "react": "^19.2.4",
