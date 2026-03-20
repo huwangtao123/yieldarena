@@ -131,6 +131,7 @@ a {
 
 .agent-row,
 .competition-list-item,
+.competition-tab,
 .match-row,
 .score-row,
 .budget-chip {
@@ -154,6 +155,8 @@ a {
 .agent-row.active,
 .competition-list-item:hover,
 .competition-list-item.active,
+.competition-tab:hover,
+.competition-tab.active,
 .match-row:hover,
 .match-row.active,
 .score-row:hover,
@@ -526,6 +529,10 @@ a {
   font-size: 0.92rem;
 }
 
+.entry-note.compact {
+  font-size: 0.82rem;
+}
+
 .entry-note-strong {
   color: var(--text);
 }
@@ -536,12 +543,48 @@ a {
 
 .competitions-panel {
   grid-area: competitions;
+  display: grid;
+  gap: 14px;
 }
 
 .competition-list {
   margin-top: 14px;
   display: grid;
   gap: 12px;
+}
+
+.competition-tabs {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.competition-tab {
+  padding: 14px 16px;
+  display: grid;
+  gap: 8px;
+  border: 1px solid var(--line);
+  background: var(--panel-soft);
+}
+
+.competition-tab strong {
+  font-size: 0.98rem;
+  font-weight: 500;
+}
+
+.competition-detail-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(320px, 0.95fr);
+  gap: 16px;
+}
+
+.competition-detail-card,
+.competition-action-card {
+  border: 1px solid var(--line);
+  background: var(--panel-soft);
+  padding: 16px;
+  display: grid;
+  gap: 14px;
 }
 
 .advanced-details {
@@ -697,7 +740,8 @@ a {
   }
 
   .hero-panel,
-  .live-grid {
+  .live-grid,
+  .competition-detail-grid {
     grid-template-columns: 1fr;
   }
 }
@@ -719,6 +763,7 @@ a {
   .metrics-strip,
   .quick-start-strip,
   .step-list,
+  .competition-tabs,
   .budget-picker,
   .form-grid,
   .competition-stats,

@@ -498,19 +498,25 @@ function App() {
     arenaState.agentAccounts?.[arenaState.selectedAgentId] ?? null;
   const selectedCompetitionProfile =
     selectedAgentAccount?.competitionProfiles?.[arenaState.selectedCompetitionId] ?? null;
+  const selectedCompetitionRegistration =
+    arenaState.selectedCompetitionId === "mpp-checkers" ? selectedAgentRegistration : null;
 
   useEffect(() => {
     if (!selectedAgent) return;
     const savedStrategy =
       selectedAgentAccount?.competitionProfiles?.[arenaState.selectedCompetitionId]?.strategy ??
-      selectedAgentRegistration?.customStrategy ??
+      selectedCompetitionRegistration?.customStrategy ??
       "";
+    const savedNickname =
+      selectedCompetitionProfile?.nickname ??
+      selectedCompetitionRegistration?.nickname ??
+      selectedAgent.name;
     setRegistrationForm((current) => ({
-      nickname: selectedAgent.name,
+      nickname: savedNickname,
       customStrategy: savedStrategy,
     }));
     setRegistrationError("");
-  }, [selectedAgent, selectedAgentAccount, selectedAgentRegistration, arenaState.selectedCompetitionId]);
+  }, [selectedAgent, selectedAgentAccount, selectedCompetitionProfile, selectedCompetitionRegistration, arenaState.selectedCompetitionId]);
 
   const selectedCompetition = useMemo(
     () =>
@@ -541,13 +547,15 @@ function App() {
   const entryPrice = selectedCompetition?.entryPrice ?? 0;
   const availableForEntry = (selectedBudget?.available ?? 0) + (selectedCompetitionWallet?.balance ?? 0);
   const budgetReady = availableForEntry >= entryPrice;
-  const agentReady = Boolean(selectedAgentRegistration && selectedAgentSigner);
+  const agentReady = Boolean(selectedCompetitionRegistration && selectedAgentSigner);
   const runnableBudget = selectedBudget?.key === "auto" ? arenaState.playBudget : availableForEntry;
   const maxRunnableEntries = entryPrice > 0 ? Math.max(0, Math.floor(runnableBudget / entryPrice)) : 0;
   const runInProgress = Boolean(
     selectedRunPlan &&
       (selectedRunPlan.status === "armed" || selectedLiveCompetitionEntry?.status === "waiting" || selectedLiveCompetitionEntry?.status === "active")
   );
+  const selectedStrategyText =
+    selectedCompetitionProfile?.strategy || registrationForm.customStrategy.trim() || "Default arena behavior";
   const fundingSummary =
     selectedBudget?.key === "auto"
       ? "Auto uses protocol starter first, then wallet yield."
@@ -557,26 +565,36 @@ function App() {
   const flowCards = [
     {
       id: "selected",
-      label: "1. Selected Agent",
+      label: "Selected Agent",
       value: selectedAgent?.name ?? "Choose an agent",
       detail: "Pick who should keep playing from the left rail.",
     },
     {
+      id: "profile",
+      label: "Competition Profile",
+      value: selectedCompetitionProfile?.nickname ?? selectedCompetitionRegistration?.nickname ?? "Not activated yet",
+      detail: selectedStrategyText,
+    },
+    {
       id: "funding",
-      label: "2. Funding",
+      label: "Funding",
       value: `${selectedBudget?.label ?? "Play Budget"} · ${runnableBudget.toFixed(2)}`,
       detail: fundingSummary,
     },
     {
       id: "run",
-      label: "3. Auto Run",
+      label: "Auto Run",
       value: runInProgress
         ? `${selectedRunPlan?.completedEntries ?? 1} live · ${selectedRunPlan?.remainingEntries ?? 0} queued`
+        : !competitionIsLive
+          ? "Not live yet"
         : budgetReady && competitionIsLive
           ? `${Math.max(1, maxRunnableEntries)} matches ready`
           : "Waiting for budget",
       detail: runInProgress
         ? "The next match starts automatically after the current one settles."
+        : !competitionIsLive
+          ? "This competition tab is visible in the arena, but it cannot be entered yet."
         : competitionIsLive
           ? `Starts 1 live ${selectedCompetition?.title} match now, then keeps entering until the run budget is exhausted.`
           : "Choose a live competition before starting a run.",
@@ -842,9 +860,36 @@ function App() {
   const recentEntries = arenaState.entryHistory.slice(0, 3);
   const recentLedger = (arenaState.fundingLedger ?? arenaState.budgetLedger).slice(0, 3);
   const latestEntry = lastEntry ?? arenaState.entryHistory[0] ?? null;
+  const latestEntryCompetitionTitle =
+    arenaState.competitions.find((item) => item.id === latestEntry?.competitionId)?.title ??
+    latestEntry?.competitionId;
   const selectedAgentEntries = arenaState.entryHistory.filter(
     (entry) => entry.agentId === selectedAgent?.id
   ).length;
+  const competitionFacts = [
+    {
+      label: "Status",
+      value: selectedCompetition?.status ?? "--",
+      detail: competitionIsLive
+        ? "This competition can be entered right now."
+        : "This competition is visible in the arena, but not yet enterable.",
+    },
+    {
+      label: "Entry",
+      value: `$${selectedCompetition?.entryPrice.toFixed(2)}`,
+      detail: "One paid seat is opened per live match.",
+    },
+    {
+      label: "Winner",
+      value: `$${selectedCompetition?.payout.toFixed(3)}`,
+      detail: "Winner payout routed back after settlement.",
+    },
+    {
+      label: "Refund",
+      value: `$${selectedCompetition?.refund.toFixed(3)}`,
+      detail: "Draw refund per side when applicable.",
+    },
+  ];
 
   return (
     <div className="page-shell">
@@ -947,7 +992,7 @@ function App() {
 
           <section className="panel command-panel">
             <div className="panel-label">COMMAND</div>
-              <div className="step-list">
+            <div className="step-list">
               {flowCards.map((card) => (
                 <article className="step-card" key={card.id}>
                   <span className="tiny-label">{card.label}</span>
@@ -966,29 +1011,22 @@ function App() {
                 <span>{selectedAgentEntries || selectedAgent?.entries || 0} entries</span>
                 <span>{selectedAgent?.roi}</span>
               </div>
-          <div className="agent-stat-grid compact">
-            <div>
-              <span className="tiny-label">competition profile</span>
-              <strong>{selectedAgentRegistration?.nickname ?? "not activated yet"}</strong>
-            </div>
-            <div>
-              <span className="tiny-label">agent account</span>
-              <strong>{selectedAgentAccount ? "ready" : "pending"}</strong>
-            </div>
-            <div>
-              <span className="tiny-label">agent float</span>
-              <strong>{(selectedCompetitionWallet?.balance ?? 0).toFixed(2)}</strong>
-            </div>
-          </div>
-          {selectedCompetitionProfile?.strategy ? (
-            <div className="entry-note">
-              <span className="tiny-label">custom strategy</span>
-              <br />
-              {selectedCompetitionProfile.strategy}
-            </div>
-          ) : null}
-          {selectedRunPlan ? (
-            <div className="agent-stat-grid compact">
+              <div className="agent-stat-grid compact">
+                <div>
+                  <span className="tiny-label">agent account</span>
+                  <strong>{selectedAgentAccount ? "ready" : "pending"}</strong>
+                </div>
+                <div>
+                  <span className="tiny-label">agent float</span>
+                  <strong>{(selectedCompetitionWallet?.balance ?? 0).toFixed(2)}</strong>
+                </div>
+                <div>
+                  <span className="tiny-label">selected game</span>
+                  <strong>{selectedCompetition?.title}</strong>
+                </div>
+              </div>
+              {selectedRunPlan ? (
+                <div className="agent-stat-grid compact">
                   <div>
                     <span className="tiny-label">run status</span>
                     <strong>{selectedRunPlan.status}</strong>
@@ -1021,71 +1059,16 @@ function App() {
               ) : null}
             </article>
 
-            <form
-              className="registration-form"
-              onSubmit={(event) => {
-                event.preventDefault();
-                handleQuickEnter();
-              }}
-            >
-              <label className="field-block">
-                <span className="tiny-label">competition nickname (optional)</span>
-                <input
-                  className="arena-input"
-                  value={registrationForm.nickname}
-                  onChange={(event) =>
-                    setRegistrationForm((current) => ({
-                      ...current,
-                      nickname: event.target.value,
-                    }))
-                  }
-                  type="text"
-                  required
-                />
-              </label>
-              <label className="field-block">
-                <span className="tiny-label">custom strategy (optional)</span>
-                <textarea
-                  className="arena-input arena-textarea"
-                  value={registrationForm.customStrategy}
-                  onChange={(event) =>
-                    setRegistrationForm((current) => ({
-                      ...current,
-                      customStrategy: event.target.value,
-                    }))
-                  }
-                  placeholder="Examples: play aggressively for fast wins, prioritize draws against stronger bots, buy time in early game."
-                  rows={3}
-                />
-              </label>
-              <div className="entry-note entry-note-strong">
-                Leave the defaults if you want. Play Budget is used automatically, and the arena keeps the run going while budget remains.
-              </div>
-
-              <div className="command-actions">
-                <button
-                  className="ghost-button"
-                  onClick={handleResetDemo}
-                  type="button"
-                  disabled={isResetting}
-                >
-                  {isResetting ? "Resetting..." : "Reset Demo"}
-                </button>
-                <button
-                  className="action-button"
-                  type="submit"
-                  disabled={isEntering || !competitionIsLive || !budgetReady || runInProgress}
-                >
-                  {isEntering
-                    ? "Starting Run..."
-                    : runInProgress
-                      ? "Run In Progress"
-                      : competitionIsLive
-                        ? `Start ${Math.max(1, maxRunnableEntries)}-Match Auto Run`
-                        : "Competition Not Live"}
-                </button>
-              </div>
-
+            <div className="command-actions">
+              <button
+                className="ghost-button"
+                onClick={handleResetDemo}
+                type="button"
+                disabled={isResetting}
+              >
+                {isResetting ? "Resetting..." : "Reset Demo"}
+              </button>
+            </div>
               {registrationError ? <div className="entry-note error">{registrationError}</div> : null}
               {signerError ? <div className="entry-note error">{signerError}</div> : null}
               {walletActionError ? <div className="entry-note error">{walletActionError}</div> : null}
@@ -1094,9 +1077,11 @@ function App() {
               {walletActionNotice ? <div className="entry-note">{walletActionNotice}</div> : null}
               <div className="entry-note">
                 {selectedRunPlan
-                    ? `Run status: ${selectedRunPlan.completedEntries} live started, ${selectedRunPlan.remainingEntries} queued next. The next match will start automatically after the current one finishes.`
+                  ? `Run status: ${selectedRunPlan.completedEntries} live started, ${selectedRunPlan.remainingEntries} queued next. The next match will start automatically after the current one finishes.`
                   : lastRun
                     ? `Latest run started with 1 live match and ${lastRun.runPlan?.remainingEntries ?? 0} queued next.`
+                    : latestEntry && latestEntry.competitionId !== selectedCompetition?.id
+                      ? `Latest live entry is in ${latestEntryCompetitionTitle}. Select that tab to inspect the current run, or choose a live competition here when this mode opens.`
                   : latestEntry
                     ? `${latestEntry.agentName} entered via ${latestEntry.budgetSource}${latestEntry.matchId ? ` · match ${latestEntry.matchId}` : ""}${latestEntry.actualPlayerNickname ? ` · attended as ${latestEntry.actualPlayerNickname}` : ""}${latestEntry.customStrategy ? ` · strategy saved` : ""} for $${latestEntry.amount.toFixed(2)}`
                     : "Pick an agent, optionally add a custom strategy, then press Start. Yield Arena handles activation, signer setup, and run funding automatically."}
@@ -1206,7 +1191,7 @@ function App() {
                       className="secondary-button"
                       onClick={handleTopUpCompetitionWallet}
                       type="button"
-                      disabled={!selectedAgentRegistration}
+                      disabled={!selectedCompetitionRegistration}
                     >
                       Top Up Wallet
                     </button>
@@ -1223,7 +1208,7 @@ function App() {
                       onClick={handleEnterCompetition}
                       type="button"
                       disabled={
-                        isEntering || !selectedCompetition?.externalUrl || !selectedAgentRegistration || !selectedAgentSigner
+                        isEntering || !selectedCompetition?.externalUrl || !selectedCompetitionRegistration || !selectedAgentSigner
                       }
                     >
                       Manual Enter
@@ -1231,29 +1216,130 @@ function App() {
                   </div>
                 </div>
               </details>
-            </form>
           </section>
 
           <section className="panel competitions-panel">
             <div className="panel-label">COMPETITIONS</div>
-            <div className="competition-list">
+            <div className="competition-tabs">
               {arenaState.competitions.map((competition) => (
                 <button
-                  className={`competition-list-item${competition.id === arenaState.selectedCompetitionId ? " active" : ""}`}
+                  className={`competition-tab${competition.id === arenaState.selectedCompetitionId ? " active" : ""}`}
                   key={competition.id}
                   onClick={() => handleCompetitionSelect(competition.id)}
                   type="button"
                 >
-                  <div>
-                    <div className="tiny-label">{competition.label}</div>
-                    <strong>{competition.title}</strong>
-                  </div>
-                  <div className="competition-mini">
-                    <span>{competition.status}</span>
-                    <span>${competition.entryPrice.toFixed(2)}</span>
-                  </div>
+                  <span className="tiny-label">{competition.label}</span>
+                  <strong>{competition.title}</strong>
+                  <span className="tiny-label">{competition.status}</span>
                 </button>
               ))}
+            </div>
+
+            <div className="competition-detail-grid">
+              <article className="competition-detail-card">
+                <div className="competition-card-top">
+                  <div>
+                    <div className="tiny-label">selected competition</div>
+                    <strong>{selectedCompetition?.title}</strong>
+                  </div>
+                  <div className="status-chip">{selectedCompetition?.status}</div>
+                </div>
+                <p className="entry-note">{selectedCompetition?.summary}</p>
+                <div className="competition-stats">
+                  {competitionFacts.map((fact) => (
+                    <div key={fact.label}>
+                      <span className="tiny-label">{fact.label}</span>
+                      <strong>{fact.value}</strong>
+                      <span className="entry-note compact">{fact.detail}</span>
+                    </div>
+                  ))}
+                </div>
+              </article>
+
+              <form
+                className="competition-action-card"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  handleQuickEnter();
+                }}
+              >
+                <div className="competition-card-top">
+                  <div>
+                    <div className="tiny-label">this agent in this game</div>
+                    <strong>{selectedAgent?.name}</strong>
+                  </div>
+                  <div className="tiny-label">
+                    {selectedCompetitionWallet?.balance
+                      ? `${selectedCompetitionWallet.balance.toFixed(2)} agent float`
+                      : "new profile"}
+                  </div>
+                </div>
+
+                <div className="agent-stat-grid compact">
+                  <div>
+                    <span className="tiny-label">nickname</span>
+                    <strong>{selectedCompetitionProfile?.nickname ?? selectedCompetitionRegistration?.nickname ?? "not activated yet"}</strong>
+                  </div>
+                  <div>
+                    <span className="tiny-label">strategy</span>
+                    <strong>{selectedCompetitionProfile?.strategy ? "custom" : "default"}</strong>
+                  </div>
+                  <div>
+                    <span className="tiny-label">run</span>
+                    <strong>{runInProgress ? "in progress" : "ready"}</strong>
+                  </div>
+                </div>
+
+                <label className="field-block">
+                  <span className="tiny-label">competition nickname (optional)</span>
+                  <input
+                    className="arena-input"
+                    value={registrationForm.nickname}
+                    onChange={(event) =>
+                      setRegistrationForm((current) => ({
+                        ...current,
+                        nickname: event.target.value,
+                      }))
+                    }
+                    type="text"
+                    required
+                  />
+                </label>
+                <label className="field-block">
+                  <span className="tiny-label">custom strategy (optional)</span>
+                  <textarea
+                    className="arena-input arena-textarea"
+                    value={registrationForm.customStrategy}
+                    onChange={(event) =>
+                      setRegistrationForm((current) => ({
+                        ...current,
+                        customStrategy: event.target.value,
+                      }))
+                    }
+                    placeholder="Examples: play aggressively for fast wins, prioritize draws against stronger bots, buy time in early game."
+                    rows={3}
+                  />
+                </label>
+                <div className="entry-note entry-note-strong">
+                  Leave the defaults if you want. Play Budget is used automatically, and the arena keeps this competition running while budget remains.
+                </div>
+
+                <div className="command-actions">
+                  <button
+                    className="action-button"
+                    type="submit"
+                    disabled={isEntering || !competitionIsLive || !budgetReady || runInProgress}
+                  >
+                    {isEntering
+                      ? "Starting Run..."
+                      : runInProgress
+                        ? "Run In Progress"
+                        : competitionIsLive
+                          ? `Start ${Math.max(1, maxRunnableEntries)}-Match Auto Run`
+                          : "Competition Not Live"}
+                  </button>
+                </div>
+              </form>
             </div>
           </section>
 
