@@ -553,6 +553,12 @@ function App() {
     selectedRunPlan &&
       (selectedRunPlan.status === "armed" || selectedLiveCompetitionEntry?.status === "waiting" || selectedLiveCompetitionEntry?.status === "active")
   );
+  const liveMatchActive = selectedLiveCompetitionEntry?.status === "active";
+  const delegatedNicknameMismatch = Boolean(
+    selectedLiveCompetitionEntry?.registeredNickname &&
+      selectedLiveCompetitionEntry?.payerNickname &&
+      selectedLiveCompetitionEntry.registeredNickname !== selectedLiveCompetitionEntry.payerNickname
+  );
   const selectedStrategyText =
     selectedCompetitionProfile?.strategy || registrationForm.customStrategy.trim() || "Default arena behavior";
   const flowCards = [
@@ -572,14 +578,18 @@ function App() {
       id: "run",
       label: "Start",
       value: runInProgress
-        ? "Run in progress"
+        ? liveMatchActive
+          ? "Waiting for moves"
+          : "Run in progress"
         : !competitionIsLive
           ? "Pending"
         : budgetReady && competitionIsLive
           ? `${Math.max(1, maxRunnableEntries)} matches budgeted`
           : "Awaiting budget",
       detail: runInProgress
-        ? "The arena keeps entering new matches while budget remains."
+        ? liveMatchActive
+          ? "Entry succeeded. This live match is still open, so the queue cannot advance yet."
+          : "The arena keeps entering new matches while budget remains."
         : !competitionIsLive
           ? "This competition is indexed in the arena, but not yet live."
         : competitionIsLive
@@ -947,8 +957,12 @@ function App() {
       detail: "The product stays clearer when one live competition is fully proven before private challenges open.",
     },
   ];
-  const commandStatusMessage = selectedRunPlan
-    ? `${selectedAgent?.name} is currently running. New matches will continue automatically while budget remains.`
+  const commandStatusMessage = selectedLiveCompetitionEntry && liveMatchActive
+    ? delegatedNicknameMismatch
+      ? `${selectedAgent?.name} successfully entered match ${selectedLiveCompetitionEntry.gameId}, but it is currently attending as ${selectedLiveCompetitionEntry.payerNickname} while the registered profile is ${selectedLiveCompetitionEntry.registeredNickname}. The match is waiting for moves, so the queued run has not advanced yet.`
+      : `${selectedAgent?.name} successfully entered match ${selectedLiveCompetitionEntry.gameId}. The match is still active and waiting for moves, so the queued run has not advanced yet.`
+    : selectedRunPlan
+      ? `${selectedAgent?.name} is currently running. New matches will continue automatically while budget remains.`
     : lastRun && lastRun.agentId === selectedAgent?.id
       ? `${selectedAgent?.name} already completed a recent run. You can start another one whenever more budget is available.`
       : selectedAgentLatestEntry
@@ -1151,7 +1165,7 @@ function App() {
                   </div>
                   <div>
                     <span className="tiny-label">run</span>
-                    <strong>{runInProgress ? "in progress" : "ready"}</strong>
+                    <strong>{runInProgress ? (liveMatchActive ? "waiting for moves" : "in progress") : "ready"}</strong>
                   </div>
                 </div>
                 <div className="entry-note">
@@ -1176,7 +1190,9 @@ function App() {
                     {isEntering
                       ? "Starting Run..."
                       : runInProgress
-                        ? "Run In Progress"
+                        ? liveMatchActive
+                          ? "Match Active"
+                          : "Run In Progress"
                         : competitionIsLive
                           ? "Start Auto Run"
                           : `Go to ${liveCompetition?.title}`}
@@ -1185,6 +1201,11 @@ function App() {
                 {competitionIsLive && !runInProgress ? (
                   <div className="entry-note compact">
                     {Math.max(1, maxRunnableEntries)} matches are budgeted from the current funding selection.
+                  </div>
+                ) : null}
+                {competitionIsLive && runInProgress && liveMatchActive ? (
+                  <div className="entry-note compact">
+                    Current live match must finish before the next queued entry starts.
                   </div>
                 ) : null}
 
@@ -1291,6 +1312,22 @@ function App() {
                   <div>
                     <span className="tiny-label">attends as</span>
                     <strong>{selectedLiveCompetitionEntry.payerNickname ?? "pending"}</strong>
+                  </div>
+                </div>
+              ) : null}
+              {selectedLiveCompetitionEntry ? (
+                <div className="agent-stat-grid compact">
+                  <div>
+                    <span className="tiny-label">registered as</span>
+                    <strong>{selectedLiveCompetitionEntry.registeredNickname ?? "pending"}</strong>
+                  </div>
+                  <div>
+                    <span className="tiny-label">entry mode</span>
+                    <strong>{selectedLiveCompetitionEntry.participantMode ?? "pending"}</strong>
+                  </div>
+                  <div>
+                    <span className="tiny-label">match status</span>
+                    <strong>{selectedLiveCompetitionEntry.status ?? "pending"}</strong>
                   </div>
                 </div>
               ) : null}
