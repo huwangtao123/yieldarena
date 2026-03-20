@@ -861,9 +861,14 @@ function App() {
   const recentEntries = arenaState.entryHistory.slice(0, 3);
   const recentLedger = (arenaState.fundingLedger ?? arenaState.budgetLedger).slice(0, 3);
   const latestEntry = lastEntry ?? arenaState.entryHistory[0] ?? null;
+  const selectedAgentLatestEntry =
+    arenaState.entryHistory.find((entry) => entry.agentId === selectedAgent?.id) ?? null;
   const latestEntryCompetitionTitle =
     arenaState.competitions.find((item) => item.id === latestEntry?.competitionId)?.title ??
     latestEntry?.competitionId;
+  const selectedAgentLatestEntryCompetitionTitle =
+    arenaState.competitions.find((item) => item.id === selectedAgentLatestEntry?.competitionId)?.title ??
+    selectedAgentLatestEntry?.competitionId;
   const selectedAgentEntries = arenaState.entryHistory.filter(
     (entry) => entry.agentId === selectedAgent?.id
   ).length;
@@ -967,6 +972,15 @@ function App() {
       detail: "The product stays clearer when one live competition is fully proven before more game modes open.",
     },
   ];
+  const commandStatusMessage = selectedRunPlan
+    ? `Run status: ${selectedRunPlan.completedEntries} live started, ${selectedRunPlan.remainingEntries} queued next. The next match will start automatically after the current one finishes.`
+    : lastRun && lastRun.agentId === selectedAgent?.id
+      ? `Latest run for ${selectedAgent?.name} started with 1 live match and ${lastRun.runPlan?.remainingEntries ?? 0} queued next.`
+      : selectedAgentLatestEntry
+        ? `${selectedAgent?.name} last entered ${selectedAgentLatestEntryCompetitionTitle} via ${selectedAgentLatestEntry.budgetSource}${selectedAgentLatestEntry.matchId ? ` · match ${selectedAgentLatestEntry.matchId}` : ""}${selectedAgentLatestEntry.actualPlayerNickname ? ` · attended as ${selectedAgentLatestEntry.actualPlayerNickname}` : ""}${selectedAgentLatestEntry.customStrategy ? ` · strategy saved` : ""} for $${selectedAgentLatestEntry.amount.toFixed(2)}`
+        : competitionIsLive
+          ? `${selectedAgent?.name} has not entered a competition yet. Press Start to activate it and open the first live MPP Checkers match.`
+          : `${selectedAgent?.name} is ready in the arena. Switch to the live competition tab to start the first run.`;
 
   return (
     <div className="page-shell">
@@ -1158,17 +1172,7 @@ function App() {
               {entryError ? <div className="entry-note error">{entryError}</div> : null}
               {signerNotice ? <div className="entry-note">{signerNotice}</div> : null}
               {walletActionNotice ? <div className="entry-note">{walletActionNotice}</div> : null}
-              <div className="entry-note">
-                {selectedRunPlan
-                  ? `Run status: ${selectedRunPlan.completedEntries} live started, ${selectedRunPlan.remainingEntries} queued next. The next match will start automatically after the current one finishes.`
-                  : lastRun
-                    ? `Latest run started with 1 live match and ${lastRun.runPlan?.remainingEntries ?? 0} queued next.`
-                    : latestEntry && latestEntry.competitionId !== selectedCompetition?.id
-                      ? `Latest live entry is in ${latestEntryCompetitionTitle}. Select that tab to inspect the current run, or choose a live competition here when this mode opens.`
-                  : latestEntry
-                    ? `${latestEntry.agentName} entered via ${latestEntry.budgetSource}${latestEntry.matchId ? ` · match ${latestEntry.matchId}` : ""}${latestEntry.actualPlayerNickname ? ` · attended as ${latestEntry.actualPlayerNickname}` : ""}${latestEntry.customStrategy ? ` · strategy saved` : ""} for $${latestEntry.amount.toFixed(2)}`
-                    : "Pick an agent, choose a live competition tab, then press Start. Yield Arena handles activation, signer setup, and run funding automatically."}
-              </div>
+              <div className="entry-note">{commandStatusMessage}</div>
 
               <details className="advanced-details">
                 <summary>Show protocol details and funding override</summary>
