@@ -623,6 +623,11 @@ function App() {
       ) ?? arenaState.competitions[0],
     [arenaState.competitions]
   );
+  useEffect(() => {
+    if (!arenaLoaded || !liveCompetition?.id) return;
+    if (arenaState.selectedCompetitionId === liveCompetition.id) return;
+    handleCompetitionSelect(liveCompetition.id);
+  }, [arenaLoaded, arenaState.selectedCompetitionId, liveCompetition?.id]);
   const selectedAgentSigner = selectedAgentAccount?.signer ?? null;
   const selectedCompetitionWallet =
     arenaState.competitionWallets?.[
@@ -639,9 +644,6 @@ function App() {
   const selectedBudget =
     arenaState.budgetSources[arenaState.selectedBudgetSource] ??
     Object.values(arenaState.budgetSources)[0];
-  const competitionIsLive = Boolean(
-    selectedCompetition?.externalUrl && selectedCompetition?.status === "live"
-  );
   const entryPrice = selectedCompetition?.entryPrice ?? 0;
   const availableForEntry = (selectedBudget?.available ?? 0) + (selectedCompetitionWallet?.balance ?? 0);
   const budgetReady = availableForEntry >= entryPrice;
@@ -660,9 +662,7 @@ function App() {
     ? "Starting Run..."
     : runInProgress
       ? "Run In Progress"
-      : competitionIsLive
-        ? "Start Auto Run"
-        : `Go to ${liveCompetition?.title}`;
+      : "Start Auto Run";
   const feedbackError = registrationError || signerError || walletActionError || entryError;
   const feedbackSuccess = feedbackError ? "" : signerNotice || walletActionNotice;
   const flowCards = [
@@ -683,9 +683,7 @@ function App() {
       label: "3. Enter",
       value: selectedLiveCompetitionEntry?.gameId
         ? `Match ${selectedLiveCompetitionEntry.gameId}`
-        : competitionIsLive
-          ? "Ready"
-          : "Pending",
+        : "Ready",
       detail: "The arena routes wallet, signer, budget, and competition entry in one step.",
     },
     {
@@ -695,7 +693,7 @@ function App() {
         ? liveMatchActive
           ? "Live"
           : "Continuing"
-        : competitionIsLive && budgetReady
+        : budgetReady
           ? "Ready"
           : "Waiting",
       detail: runInProgress
@@ -788,7 +786,7 @@ function App() {
       const resolvedNickname = data.registration?.nickname ?? requestedNickname;
       const runSummary = data.run
         ? `1 live now, ${data.run.runPlan?.remainingEntries ?? 0} queued next`
-        : `${selectedCompetition?.title}`;
+        : "the live competition";
       setWalletActionNotice(
         formatFeedbackSuccess(
           data.activation?.registrationCreated || data.activation?.signerCreated
@@ -1013,9 +1011,7 @@ function App() {
     {
       label: "Status",
       value: selectedCompetition?.status ?? "--",
-      detail: competitionIsLive
-        ? "This competition can be entered right now."
-        : "This competition is visible in the arena, but not yet enterable.",
+      detail: "This is the one live competition in the current MVP.",
     },
     {
       label: "Entry",
@@ -1101,61 +1097,6 @@ function App() {
   const hasSelectedCompetitionProfile = Boolean(
     selectedCompetitionProfile || selectedCompetitionRegistration || selectedAgentSigner
   );
-  const isCheckersMode = selectedCompetition?.id === "mpp-checkers";
-  const competitionReadiness = {
-    "mpp-checkers": [
-      {
-        label: "MVP now",
-        value: "Live",
-        detail: "This is the one fully integrated competition in the MVP.",
-      },
-      {
-        label: "Payment rail",
-        value: "MPP",
-        detail: "Every entry is paid through the arena flow.",
-      },
-      {
-        label: "Proof layer",
-        value: "Scoreboard + live match",
-        detail: "The arena can show public standings and match state today.",
-      },
-    ],
-    "private-challenges": [
-      {
-        label: "MVP status",
-        value: "Pending",
-        detail: "This mode is planned, but not yet live in the current MVP.",
-      },
-      {
-        label: "What is pending",
-        value: "Private rooms",
-        detail: "Direct agent-vs-agent challenge rooms funded by wallet yield.",
-      },
-      {
-        label: "What carries over",
-        value: "Same agent + budget",
-        detail: "Your agent account, strategy, and play budget will work here too.",
-      },
-    ],
-  };
-  const selectedModeReadiness = competitionReadiness[selectedCompetition?.id] ?? [];
-  const selectedModePositioning = [
-    {
-      label: "Live now",
-      value: "MPP Checkers",
-      detail: "The MVP proves one fully integrated yield-funded competition from end to end.",
-    },
-    {
-      label: "This mode",
-      value: selectedCompetition?.status ?? "--",
-      detail: `The arena already indexes ${selectedCompetition?.title}, but this mode is not launched yet.`,
-    },
-    {
-      label: "Why hold scope",
-      value: "Keep the MVP sharp",
-      detail: "The product stays clearer when one live competition is fully proven before private challenges open.",
-    },
-  ];
   const agentRosterItems = useMemo(() => {
     const liveEntries = Object.values(arenaState.liveCompetitionEntries ?? {});
 
@@ -1226,16 +1167,9 @@ function App() {
         ? "Run completed. Start Auto Run again whenever you want the arena to open the next set of matches."
         : selectedAgentLatestEntry
           ? `Ready for another run. The last entry spent $${selectedAgentLatestEntry.amount.toFixed(2)} from ${selectedAgentLatestEntry.budgetSource} budget.`
-          : competitionIsLive
-            ? "Press Start Auto Run. The arena will activate the agent, route Playable Yield, enter the live competition, and keep running automatically."
-            : `This mode is not live yet. Switch back to ${liveCompetition?.title} to start the first run.`;
+          : "Press Start Auto Run. The arena will activate the agent, route Playable Yield, enter the live competition, and keep running automatically.";
 
   function handlePrimaryAction() {
-    if (!competitionIsLive) {
-      handleCompetitionSelect(liveCompetition.id);
-      return;
-    }
-
     handleQuickEnter();
   }
 
@@ -1353,20 +1287,9 @@ function App() {
           </section>
 
           <section className="panel competitions-panel">
-            <div className="panel-label">COMPETITIONS</div>
-            <div className="competition-tabs">
-              {arenaState.competitions.map((competition) => (
-                <button
-                  className={`competition-tab${competition.id === arenaState.selectedCompetitionId ? " active" : ""}`}
-                  key={competition.id}
-                  onClick={() => handleCompetitionSelect(competition.id)}
-                  type="button"
-                >
-                  <span className="tiny-label">{competition.label}</span>
-                  <strong>{competition.title}</strong>
-                  <span className="tiny-label">{competition.status}</span>
-                </button>
-              ))}
+            <div className="panel-header">
+              <div className="panel-label">LIVE COMPETITION</div>
+              <div className="tiny-label">one live competition for the current MVP</div>
             </div>
 
             <div className="competition-detail-grid">
@@ -1439,11 +1362,9 @@ function App() {
                   {selectedProfileStrategy}
                 </div>
                 <div className="entry-note entry-note-strong">
-                  {competitionIsLive
-                    ? hasSelectedCompetitionProfile
-                      ? "This competition is ready. The arena will handle activation, funding, entry, and auto-run."
-                      : "First run will create the competition profile automatically, then continue with Playable Yield."
-                    : `${liveCompetition?.title} is the live MVP competition right now. This tab stays visible so you can see what comes next.`}
+                  {hasSelectedCompetitionProfile
+                    ? "This competition is ready. The arena will handle activation, funding, entry, and auto-run."
+                    : "First run will create the competition profile automatically, then continue with Playable Yield."}
                 </div>
 
                 <details className="profile-details">
@@ -1488,7 +1409,7 @@ function App() {
           <section className="panel command-panel">
             <div className="panel-header">
               <div className="panel-label">COMMAND</div>
-              <div className="tiny-label">select competition, then run one clean flow</div>
+              <div className="tiny-label">one flow: activate, fund, enter, auto-run</div>
             </div>
             <div className="command-grid">
               <div className="step-list">
@@ -1515,7 +1436,7 @@ function App() {
                 </div>
                 <div className="agent-stat-line">
                   <span>{selectedAgent?.style}</span>
-                  <span>{selectedCompetition?.title}</span>
+                  <span>Live competition</span>
                   <span>{selectedAgentEntries || selectedAgent?.entries || 0} entries</span>
                 </div>
                 <div className="command-summary-grid">
@@ -1562,18 +1483,16 @@ function App() {
                     className="action-button primary-action-button"
                     onClick={handlePrimaryAction}
                     type="button"
-                    disabled={competitionIsLive ? isEntering || !budgetReady || runInProgress : false}
+                    disabled={isEntering || !budgetReady || runInProgress}
                   >
                     {primaryActionLabel}
                   </button>
-                  <div className="entry-note compact">
-                    {competitionIsLive
-                      ? runInProgress
-                        ? "A live run is already underway. The arena will keep advancing as turns settle."
-                        : `The arena will Activate → Fund → Enter → Auto-Run using ${selectedBudget?.label ?? "Playable Yield"}.`
-                      : `This mode is not live yet. Press the button to switch back to ${liveCompetition?.title}.`}
-                  </div>
+                <div className="entry-note compact">
+                  {runInProgress
+                      ? "A live run is already underway. The arena will keep advancing as turns settle."
+                      : `The arena will Activate → Fund → Enter → Auto-Run using ${selectedBudget?.label ?? "Playable Yield"}.`}
                 </div>
+              </div>
 
                 <div className="entry-note">{commandStatusMessage}</div>
                 {selectedLiveCompetitionEntry?.lastMove ? (
@@ -1588,11 +1507,6 @@ function App() {
                 ) : null}
               </article>
             </div>
-            {arenaState.agents.length <= 1 ? (
-              <div className="entry-note compact">
-                Add another agent before deleting this one. The arena always keeps at least one active agent.
-              </div>
-            ) : null}
             {feedbackError ? (
               <article className="feedback-card feedback-card-error">
                 <span className="tiny-label">Run feedback</span>
@@ -1615,338 +1529,128 @@ function App() {
               >
                 {isResetting ? "Resetting..." : "Reset Demo"}
               </button>
-              <button
-                className="ghost-button danger-button"
-                onClick={handleDeleteAgent}
-                type="button"
-                disabled={isDeletingAgent || arenaState.agents.length <= 1}
-              >
-                {isDeletingAgent ? "Deleting..." : "Delete Agent"}
-              </button>
             </div>
-
-            <details className="advanced-details">
-              <summary>Advanced controls</summary>
-              <div className="advanced-details-body">
-                <div className="entry-note">
-                  Target model: fxSAVE stays in the owner vault, yield tops up the agent account, and the agent account spends into competitions.
-                </div>
-                <div className="field-block">
-                  <span className="tiny-label">funding override</span>
-                  <div className="budget-picker">
-                    {Object.values(arenaState.budgetSources).map((source) => (
-                      <button
-                        className={`budget-chip${source.key === arenaState.selectedBudgetSource ? " active" : ""}`}
-                        key={source.key}
-                        onClick={() => handleBudgetSelect(source.key)}
-                        type="button"
-                      >
-                        <span>{source.label}</span>
-                        <span className="tiny-label">{source.available.toFixed(2)} ready</span>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-                <div className="agent-stat-line stacked">
-                  <span className="tiny-label">owner account</span>
-                  <span>{arenaState.mainLoginWallet.address}</span>
-                </div>
-                {selectedAgentAccount ? (
-                  <div className="agent-stat-line stacked">
-                    <span className="tiny-label">agent account address</span>
-                    <span>{selectedAgentAccount.address}</span>
-                  </div>
-                ) : null}
-                {selectedAgentAccount ? (
-                  <div className="agent-stat-grid">
-                    <div>
-                      <span className="tiny-label">signer status</span>
-                      <strong>{selectedAgentAccount.signerStatus}</strong>
-                    </div>
-                    <div>
-                      <span className="tiny-label">target signer</span>
-                      <strong>{selectedAgentAccount.requestedExecutionMode ?? "pending"}</strong>
-                    </div>
-                    <div>
-                      <span className="tiny-label">effective execution</span>
-                      <strong>{selectedAgentAccount.effectiveExecutionMode ?? selectedAgentAccount.executionMode}</strong>
-                    </div>
-                  </div>
-                ) : null}
-                {selectedAgentAccount ? (
-                  <div className="agent-stat-grid">
-                    <div>
-                      <span className="tiny-label">real signer ready</span>
-                      <strong>{selectedAgentAccount.realSignerReady ? "yes" : "not yet"}</strong>
-                    </div>
-                    <div>
-                      <span className="tiny-label">budget enforcement</span>
-                      <strong>{selectedAgentAccount.budgetEnforcement ?? "arena_yield_allowance"}</strong>
-                    </div>
-                    <div>
-                      <span className="tiny-label">account type</span>
-                      <strong>{selectedAgentAccount.accountType}</strong>
-                    </div>
-                  </div>
-                ) : null}
-                {selectedAgentSigner ? (
-                  <div className="agent-stat-grid">
-                    <div>
-                      <span className="tiny-label">signer key</span>
-                      <strong>{selectedAgentSigner.keyId}</strong>
-                    </div>
-                    <div>
-                      <span className="tiny-label">expiry</span>
-                      <strong>{selectedAgentSigner.expiry?.slice(0, 10) ?? "--"}</strong>
-                    </div>
-                    <div>
-                      <span className="tiny-label">allowed</span>
-                      <strong>{selectedAgentSigner.allowedCompetitions?.join(", ") ?? "--"}</strong>
-                    </div>
-                  </div>
-                ) : null}
-                {selectedAgentSigner?.executionNote ? (
-                  <div className="entry-note">
-                    <span className="tiny-label">execution note</span>
-                    <br />
-                    {selectedAgentSigner.executionNote}
-                  </div>
-                ) : null}
-                {selectedAgentSigner?.arenaBudgetPolicy ? (
-                  <div className="agent-stat-grid">
-                    <div>
-                      <span className="tiny-label">playable yield</span>
-                      <strong>{selectedAgentSigner.arenaBudgetPolicy.playableYield?.toFixed(2) ?? "0.00"}</strong>
-                    </div>
-                    <div>
-                      <span className="tiny-label">competition float</span>
-                      <strong>{selectedAgentSigner.arenaBudgetPolicy.competitionFloat?.toFixed(2) ?? "0.00"}</strong>
-                    </div>
-                    <div>
-                      <span className="tiny-label">can enter now</span>
-                      <strong>{selectedAgentSigner.arenaBudgetPolicy.canEnterNow ? "yes" : "no"}</strong>
-                    </div>
-                  </div>
-                ) : null}
-                {selectedCompetitionWallet ? (
-                  <div className="agent-stat-grid">
-                    <div>
-                      <span className="tiny-label">funded by protocol</span>
-                      <strong>{(selectedCompetitionWallet.fundedTotals?.protocol ?? 0).toFixed(2)}</strong>
-                    </div>
-                    <div>
-                      <span className="tiny-label">funded by wallet</span>
-                      <strong>{(selectedCompetitionWallet.fundedTotals?.wallet ?? 0).toFixed(2)}</strong>
-                    </div>
-                    <div>
-                      <span className="tiny-label">spent total</span>
-                      <strong>{(selectedCompetitionWallet.spentTotal ?? 0).toFixed(2)}</strong>
-                    </div>
-                  </div>
-                ) : null}
-                <div className="command-actions">
-                  <button
-                    className="secondary-button"
-                    onClick={handleActivateAgent}
-                    type="button"
-                    disabled={isActivating}
-                  >
-                    {isActivating ? "Activating..." : `Prepare ${selectedAgent?.name ?? "Agent"}`}
-                  </button>
-                  <button className="secondary-button" onClick={handleRegisterAgent} type="button" disabled={isRegistering}>
-                    {isRegistering ? "Creating..." : "Manual Register"}
-                  </button>
-                  <button
-                    className="secondary-button"
-                    onClick={handleProvisionSigner}
-                    type="button"
-                    disabled={!selectedAgentAccount}
-                  >
-                    Manual Signer
-                  </button>
-                  <button
-                    className="secondary-button"
-                    onClick={handleTopUpCompetitionWallet}
-                    type="button"
-                    disabled={!selectedCompetitionRegistration}
-                  >
-                    Top Up Wallet
-                  </button>
-                  <button
-                    className="ghost-button"
-                    onClick={handleSweepCompetitionWallet}
-                    type="button"
-                    disabled={!selectedCompetitionWallet?.balance}
-                  >
-                    Sweep Back
-                  </button>
-                  <button
-                    className="ghost-button"
-                    onClick={handleEnterCompetition}
-                    type="button"
-                    disabled={
-                      isEntering || !selectedCompetition?.externalUrl || !selectedCompetitionRegistration || !selectedAgentSigner
-                    }
-                  >
-                    Manual Enter
-                  </button>
-                </div>
-              </div>
-            </details>
           </section>
 
           <section className="panel live-panel">
             <div className="panel-header">
-              <div className="panel-label">{isCheckersMode ? "ARENA-WIDE LIVE FEED" : "MODE STATUS"}</div>
-              <div className="tiny-label">
-                {isCheckersMode ? "public matches + current board state" : "current MVP coverage for this competition"}
+              <div className="panel-label">ARENA-WIDE LIVE FEED</div>
+              <div className="tiny-label">public matches + current board state</div>
+            </div>
+            <div className="live-grid">
+              <div className="matches-list">
+                {recentGames.length ? (
+                  recentGames.map((game) => (
+                    <button
+                      className={`match-row${selectedGameId === game.game_id ? " active" : ""}`}
+                      key={game.game_id}
+                      onClick={() => setSelectedGameId(game.game_id)}
+                      type="button"
+                    >
+                      <div>
+                        <strong>{game.black ?? "open"} vs {game.red ?? "open"}</strong>
+                        <div className="tiny-label">{game.status} · {game.move_count} moves</div>
+                      </div>
+                      <div className="tiny-label">{game.game_id}</div>
+                    </button>
+                  ))
+                ) : (
+                  <div className="entry-note">No recent matches loaded.</div>
+                )}
+              </div>
+
+              <div className="match-view">
+                {selectedGameState ? (
+                  <>
+                    <div className="match-meta">
+                      <div>
+                        <span className="tiny-label">game</span>
+                        <strong>{selectedGameState.game_id}</strong>
+                      </div>
+                      <div>
+                        <span className="tiny-label">turn</span>
+                        <strong>{selectedGameState.turn ?? "--"}</strong>
+                      </div>
+                      <div>
+                        <span className="tiny-label">winner</span>
+                        <strong>{selectedGameState.winner ?? "--"}</strong>
+                      </div>
+                      <div>
+                        <span className="tiny-label">moves</span>
+                        <strong>{selectedGameState.move_count ?? 0}</strong>
+                      </div>
+                    </div>
+
+                    <div className="board-grid">
+                      {selectedGameState.board?.flat().map((cell, index) => (
+                        <div className={`board-cell cell-${cell}`} key={`${selectedGameState.game_id}-${index}`}>
+                          {cell === "." ? "" : cell}
+                        </div>
+                      ))}
+                    </div>
+                  </>
+                ) : (
+                  <div className="entry-note">No match state loaded.</div>
+                )}
               </div>
             </div>
-            {isCheckersMode ? (
-              <div className="live-grid">
-                <div className="matches-list">
-                  {recentGames.length ? (
-                    recentGames.map((game) => (
-                      <button
-                        className={`match-row${selectedGameId === game.game_id ? " active" : ""}`}
-                        key={game.game_id}
-                        onClick={() => setSelectedGameId(game.game_id)}
-                        type="button"
-                      >
-                        <div>
-                          <strong>{game.black ?? "open"} vs {game.red ?? "open"}</strong>
-                          <div className="tiny-label">{game.status} · {game.move_count} moves</div>
-                        </div>
-                        <div className="tiny-label">{game.game_id}</div>
-                      </button>
-                    ))
-                  ) : (
-                    <div className="entry-note">No recent matches loaded.</div>
-                  )}
-                </div>
-
-                <div className="match-view">
-                  {selectedGameState ? (
-                    <>
-                      <div className="match-meta">
-                        <div>
-                          <span className="tiny-label">game</span>
-                          <strong>{selectedGameState.game_id}</strong>
-                        </div>
-                        <div>
-                          <span className="tiny-label">turn</span>
-                          <strong>{selectedGameState.turn ?? "--"}</strong>
-                        </div>
-                        <div>
-                          <span className="tiny-label">winner</span>
-                          <strong>{selectedGameState.winner ?? "--"}</strong>
-                        </div>
-                        <div>
-                          <span className="tiny-label">moves</span>
-                          <strong>{selectedGameState.move_count ?? 0}</strong>
-                        </div>
-                      </div>
-
-                      <div className="board-grid">
-                        {selectedGameState.board?.flat().map((cell, index) => (
-                          <div className={`board-cell cell-${cell}`} key={`${selectedGameState.game_id}-${index}`}>
-                            {cell === "." ? "" : cell}
-                          </div>
-                        ))}
-                      </div>
-                    </>
-                  ) : (
-                    <div className="entry-note">No match state loaded.</div>
-                  )}
-                </div>
-              </div>
-            ) : (
-              <div className="mode-status-grid">
-                {selectedModeReadiness.map((item) => (
-                  <article className="step-card" key={item.label}>
-                    <span className="tiny-label">{item.label}</span>
-                    <strong>{item.value}</strong>
-                    <div className="entry-note">{item.detail}</div>
-                  </article>
-                ))}
-              </div>
-            )}
           </section>
 
           <section className="panel side-panel">
-            {isCheckersMode ? (
-              <>
-                <div className="stack-panel">
-                  <div className="panel-label">PUBLIC SCOREBOARD</div>
-                  {scoreboard.slice(0, 3).map((player, index) => (
-                    <article className="score-row" key={player.nickname}>
-                      <span className="tiny-label">#{index + 1}</span>
-                      <span>{player.nickname}</span>
-                      <span className="tiny-label">{player.wins}W</span>
-                    </article>
-                  ))}
-                </div>
+            <div className="stack-panel">
+              <div className="panel-label">PUBLIC SCOREBOARD</div>
+              {scoreboard.slice(0, 3).map((player, index) => (
+                <article className="score-row" key={player.nickname}>
+                  <span className="tiny-label">#{index + 1}</span>
+                  <span>{player.nickname}</span>
+                  <span className="tiny-label">{player.wins}W</span>
+                </article>
+              ))}
+            </div>
 
-                <div className="stack-panel">
-                  <div className="panel-label">COMPETITION P/L</div>
-                  {selectedCompetitionWallet ? (
-                    <article className="agent-card compact">
-                      <div className="agent-card-head">
-                        <strong>{selectedAgent?.name}</strong>
-                        <span className="tiny-label">{selectedCompetition?.title}</span>
-                      </div>
-                      <div className="agent-stat-grid compact">
-                        <div>
-                          <span className="tiny-label">funded in</span>
-                          <strong>{selectedCompetitionFunded.toFixed(2)}</strong>
-                        </div>
-                        <div>
-                          <span className="tiny-label">spent</span>
-                          <strong>{selectedCompetitionSpent.toFixed(2)}</strong>
-                        </div>
-                        <div>
-                          <span className="tiny-label">swept back</span>
-                          <strong>{selectedCompetitionSwept.toFixed(2)}</strong>
-                        </div>
-                      </div>
-                      <div className="agent-stat-grid compact">
-                        <div>
-                          <span className="tiny-label">live float</span>
-                          <strong>{selectedCompetitionFloat.toFixed(2)}</strong>
-                        </div>
-                        <div>
-                          <span className="tiny-label">net result</span>
-                          <strong className={selectedCompetitionNet >= 0 ? "result-positive" : "result-negative"}>
-                            {selectedCompetitionNet >= 0 ? "+" : ""}
-                            {selectedCompetitionNet.toFixed(2)}
-                          </strong>
-                        </div>
-                      </div>
-                      <div className="entry-note compact">
-                        Net result = live float + swept back - funded into this competition wallet.
-                      </div>
-                    </article>
-                  ) : (
-                    <div className="entry-note">No competition wallet activity yet.</div>
-                  )}
-                </div>
-              </>
-            ) : (
-              <div className="stack-panel">
-                <div className="panel-label">MVP POSITIONING</div>
-                {selectedModePositioning.map((item) => (
-                  <article className="feed-row" key={item.label}>
+            <div className="stack-panel">
+              <div className="panel-label">COMPETITION P/L</div>
+              {selectedCompetitionWallet ? (
+                <article className="agent-card compact">
+                  <div className="agent-card-head">
+                    <strong>{selectedAgent?.name}</strong>
+                    <span className="tiny-label">{selectedCompetition?.title}</span>
+                  </div>
+                  <div className="agent-stat-grid compact">
                     <div>
-                      <strong>{item.label}</strong>
-                      <div className="tiny-label">{item.value}</div>
+                      <span className="tiny-label">funded in</span>
+                      <strong>{selectedCompetitionFunded.toFixed(2)}</strong>
                     </div>
-                    <div className="feed-meta">
-                      <span className="tiny-label">{item.detail}</span>
+                    <div>
+                      <span className="tiny-label">spent</span>
+                      <strong>{selectedCompetitionSpent.toFixed(2)}</strong>
                     </div>
-                  </article>
-                ))}
-              </div>
-            )}
+                    <div>
+                      <span className="tiny-label">swept back</span>
+                      <strong>{selectedCompetitionSwept.toFixed(2)}</strong>
+                    </div>
+                  </div>
+                  <div className="agent-stat-grid compact">
+                    <div>
+                      <span className="tiny-label">live float</span>
+                      <strong>{selectedCompetitionFloat.toFixed(2)}</strong>
+                    </div>
+                    <div>
+                      <span className="tiny-label">net result</span>
+                      <strong className={selectedCompetitionNet >= 0 ? "result-positive" : "result-negative"}>
+                        {selectedCompetitionNet >= 0 ? "+" : ""}
+                        {selectedCompetitionNet.toFixed(2)}
+                      </strong>
+                    </div>
+                  </div>
+                  <div className="entry-note compact">
+                    Net result = live float + swept back - funded into this competition wallet.
+                  </div>
+                </article>
+              ) : (
+                <div className="entry-note">No competition wallet activity yet.</div>
+              )}
+            </div>
 
             <div className="stack-panel">
               <div className="panel-header">
