@@ -248,6 +248,21 @@ a {
   line-height: 1.5;
 }
 
+.mvp-strip {
+  margin-top: 18px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  background: rgba(44, 244, 255, 0.04);
+  display: grid;
+  gap: 6px;
+}
+
+.mvp-strip strong {
+  font-size: 1rem;
+  font-weight: 500;
+  color: var(--text);
+}
+
 .hero-side {
   display: grid;
   gap: 16px;
@@ -592,7 +607,8 @@ a {
   padding-top: 12px;
 }
 
-.advanced-details summary {
+.advanced-details summary,
+.profile-details summary {
   cursor: pointer;
   list-style: none;
   font-family: var(--font-mono);
@@ -602,7 +618,8 @@ a {
   font-size: 0.78rem;
 }
 
-.advanced-details summary::-webkit-details-marker {
+.advanced-details summary::-webkit-details-marker,
+.profile-details summary::-webkit-details-marker {
   display: none;
 }
 
@@ -610,6 +627,11 @@ a {
   margin-top: 12px;
   display: grid;
   gap: 12px;
+}
+
+.profile-details {
+  border-top: 1px solid var(--line);
+  padding-top: 12px;
 }
 
 .competition-list-item {
@@ -751,6 +773,10 @@ a {
   .competition-detail-grid,
   .mode-status-grid {
     grid-template-columns: 1fr;
+  }
+
+  .mvp-strip {
+    margin-top: 14px;
   }
 }
 

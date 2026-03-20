@@ -525,6 +525,13 @@ function App() {
       ) ?? arenaState.competitions[0],
     [arenaState.competitions, arenaState.selectedCompetitionId]
   );
+  const liveCompetition = useMemo(
+    () =>
+      arenaState.competitions.find(
+        (competition) => competition.status === "live" && competition.externalUrl
+      ) ?? arenaState.competitions[0],
+    [arenaState.competitions]
+  );
   const selectedAgentSigner = selectedAgentAccount?.signer ?? null;
   const selectedCompetitionWallet =
     arenaState.competitionWallets?.[
@@ -568,12 +575,6 @@ function App() {
       label: "Selected Agent",
       value: selectedAgent?.name ?? "Choose an agent",
       detail: "Pick who should keep playing from the left rail.",
-    },
-    {
-      id: "profile",
-      label: "Competition Profile",
-      value: selectedCompetitionProfile?.nickname ?? selectedCompetitionRegistration?.nickname ?? "Not activated yet",
-      detail: selectedStrategyText,
     },
     {
       id: "funding",
@@ -890,6 +891,10 @@ function App() {
       detail: "Draw refund per side when applicable.",
     },
   ];
+  const selectedProfileNickname =
+    selectedCompetitionProfile?.nickname ?? selectedCompetitionRegistration?.nickname ?? "not activated yet";
+  const selectedProfileStrategy =
+    selectedCompetitionProfile?.strategy?.trim() || "Default arena behavior";
   const isCheckersMode = selectedCompetition?.id === "mpp-checkers";
   const competitionReadiness = {
     "mpp-checkers": [
@@ -1024,6 +1029,12 @@ function App() {
                 <span>{arenaStatus}</span>
               </div>
               <div className="hero-summary">{selectedCompetition?.summary}</div>
+              <div className="mvp-strip">
+                <span className="tiny-label">MVP now</span>
+                <strong>Yield-funded entry into one live MPP competition.</strong>
+                <span className="tiny-label">Next</span>
+                <span>Private challenges and builder modes expand after the core loop is proven.</span>
+              </div>
             </div>
 
             <div className="hero-side">
@@ -1093,8 +1104,8 @@ function App() {
                   <strong>{(selectedCompetitionWallet?.balance ?? 0).toFixed(2)}</strong>
                 </div>
                 <div>
-                  <span className="tiny-label">selected game</span>
-                  <strong>{selectedCompetition?.title}</strong>
+                  <span className="tiny-label">current mode</span>
+                  <strong>{selectedCompetition?.status}</strong>
                 </div>
               </div>
               {selectedRunPlan ? (
@@ -1156,7 +1167,7 @@ function App() {
                       ? `Latest live entry is in ${latestEntryCompetitionTitle}. Select that tab to inspect the current run, or choose a live competition here when this mode opens.`
                   : latestEntry
                     ? `${latestEntry.agentName} entered via ${latestEntry.budgetSource}${latestEntry.matchId ? ` · match ${latestEntry.matchId}` : ""}${latestEntry.actualPlayerNickname ? ` · attended as ${latestEntry.actualPlayerNickname}` : ""}${latestEntry.customStrategy ? ` · strategy saved` : ""} for $${latestEntry.amount.toFixed(2)}`
-                    : "Pick an agent, optionally add a custom strategy, then press Start. Yield Arena handles activation, signer setup, and run funding automatically."}
+                    : "Pick an agent, choose a live competition tab, then press Start. Yield Arena handles activation, signer setup, and run funding automatically."}
               </div>
 
               <details className="advanced-details">
@@ -1332,6 +1343,10 @@ function App() {
                 className="competition-action-card"
                 onSubmit={(event) => {
                   event.preventDefault();
+                  if (!competitionIsLive) {
+                    handleCompetitionSelect(liveCompetition.id);
+                    return;
+                  }
                   handleQuickEnter();
                 }}
               >
@@ -1350,7 +1365,7 @@ function App() {
                 <div className="agent-stat-grid compact">
                   <div>
                     <span className="tiny-label">nickname</span>
-                    <strong>{selectedCompetitionProfile?.nickname ?? selectedCompetitionRegistration?.nickname ?? "not activated yet"}</strong>
+                    <strong>{selectedProfileNickname}</strong>
                   </div>
                   <div>
                     <span className="tiny-label">strategy</span>
@@ -1361,46 +1376,22 @@ function App() {
                     <strong>{runInProgress ? "in progress" : "ready"}</strong>
                   </div>
                 </div>
-
-                <label className="field-block">
-                  <span className="tiny-label">competition nickname (optional)</span>
-                  <input
-                    className="arena-input"
-                    value={registrationForm.nickname}
-                    onChange={(event) =>
-                      setRegistrationForm((current) => ({
-                        ...current,
-                        nickname: event.target.value,
-                      }))
-                    }
-                    type="text"
-                    required
-                  />
-                </label>
-                <label className="field-block">
-                  <span className="tiny-label">custom strategy (optional)</span>
-                  <textarea
-                    className="arena-input arena-textarea"
-                    value={registrationForm.customStrategy}
-                    onChange={(event) =>
-                      setRegistrationForm((current) => ({
-                        ...current,
-                        customStrategy: event.target.value,
-                      }))
-                    }
-                    placeholder="Examples: play aggressively for fast wins, prioritize draws against stronger bots, buy time in early game."
-                    rows={3}
-                  />
-                </label>
+                <div className="entry-note">
+                  <span className="tiny-label">strategy summary</span>
+                  <br />
+                  {selectedProfileStrategy}
+                </div>
                 <div className="entry-note entry-note-strong">
-                  Leave the defaults if you want. Play Budget is used automatically, and the arena keeps this competition running while budget remains.
+                  {competitionIsLive
+                    ? "Leave the defaults if you want. Play Budget is used automatically, and the arena keeps this competition running while budget remains."
+                    : `${liveCompetition?.title} is the live MVP competition right now. This tab stays visible so you can see what comes next.`}
                 </div>
 
                 <div className="command-actions">
                   <button
                     className="action-button"
                     type="submit"
-                    disabled={isEntering || !competitionIsLive || !budgetReady || runInProgress}
+                    disabled={competitionIsLive ? isEntering || !budgetReady || runInProgress : false}
                   >
                     {isEntering
                       ? "Starting Run..."
@@ -1408,9 +1399,45 @@ function App() {
                         ? "Run In Progress"
                         : competitionIsLive
                           ? `Start ${Math.max(1, maxRunnableEntries)}-Match Auto Run`
-                          : "Competition Not Live"}
+                          : `Go to ${liveCompetition?.title}`}
                   </button>
                 </div>
+
+                <details className="profile-details">
+                  <summary>Edit profile options</summary>
+                  <div className="advanced-details-body">
+                    <label className="field-block">
+                      <span className="tiny-label">competition nickname (optional)</span>
+                      <input
+                        className="arena-input"
+                        value={registrationForm.nickname}
+                        onChange={(event) =>
+                          setRegistrationForm((current) => ({
+                            ...current,
+                            nickname: event.target.value,
+                          }))
+                        }
+                        type="text"
+                        required
+                      />
+                    </label>
+                    <label className="field-block">
+                      <span className="tiny-label">custom strategy (optional)</span>
+                      <textarea
+                        className="arena-input arena-textarea"
+                        value={registrationForm.customStrategy}
+                        onChange={(event) =>
+                          setRegistrationForm((current) => ({
+                            ...current,
+                            customStrategy: event.target.value,
+                          }))
+                        }
+                        placeholder="Examples: play aggressively for fast wins, prioritize draws against stronger bots, buy time in early game."
+                        rows={3}
+                      />
+                    </label>
+                  </div>
+                </details>
               </form>
             </div>
           </section>
