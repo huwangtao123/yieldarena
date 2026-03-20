@@ -1458,9 +1458,9 @@ function App() {
 
           <section className="panel live-panel">
             <div className="panel-header">
-              <div className="panel-label">{isCheckersMode ? "LIVE FEED" : "MODE STATUS"}</div>
+              <div className="panel-label">{isCheckersMode ? "ARENA-WIDE LIVE FEED" : "MODE STATUS"}</div>
               <div className="tiny-label">
-                {isCheckersMode ? "recent matches + match state" : "current MVP coverage for this competition"}
+                {isCheckersMode ? "public matches + current board state" : "current MVP coverage for this competition"}
               </div>
             </div>
             {isCheckersMode ? (
@@ -1538,7 +1538,7 @@ function App() {
             {isCheckersMode ? (
               <>
                 <div className="stack-panel">
-                  <div className="panel-label">SCOREBOARD</div>
+                  <div className="panel-label">PUBLIC SCOREBOARD</div>
                   {scoreboard.slice(0, 3).map((player, index) => (
                     <button
                       className={`score-row${selectedContender === player.nickname ? " active" : ""}`}
@@ -1554,7 +1554,7 @@ function App() {
                 </div>
 
                 <div className="stack-panel">
-                  <div className="panel-label">CONTENDER</div>
+                  <div className="panel-label">TOP CONTENDER</div>
                   {contenderStats ? (
                     <article className="agent-card compact">
                       <div className="agent-card-head">
@@ -1594,7 +1594,7 @@ function App() {
             )}
 
             <div className="stack-panel">
-              <div className="panel-label">ACTIVITY</div>
+              <div className="panel-label">ARENA ACTIVITY</div>
               {recentEntries.map((entry) => (
                 <article className="feed-row" key={entry.id}>
                   <div>
