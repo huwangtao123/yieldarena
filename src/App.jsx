@@ -178,6 +178,10 @@ function getFailureNextStep(reason, fallback) {
     return "Wait for the current live match to settle before starting another run.";
   }
 
+  if (normalized.includes("real agent account sweep is not available yet")) {
+    return "Leave the float in place for now. Real agent entry works, but real agent sweep still needs a dedicated transfer path.";
+  }
+
   if (normalized.includes("register")) {
     return "Use Start Auto Run so the arena can prepare the profile automatically.";
   }

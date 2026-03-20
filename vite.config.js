@@ -209,7 +209,7 @@ function createInitialArenaState() {
   };
 }
 
-const arenaState = createInitialArenaState();
+let arenaState = createInitialArenaState();
 
 function loadDatabaseRecord(key) {
   try {
@@ -421,6 +421,16 @@ function persistAgentSigners() {
 
 function roundMoney(value) {
   return Number(value.toFixed(2));
+}
+
+function normalizeTokenAmount(value) {
+  return Number(value.toFixed(tokenDecimals));
+}
+
+function formatTokenAmount(value) {
+  return normalizeTokenAmount(value)
+    .toFixed(tokenDecimals)
+    .replace(/\.?0+$/, "");
 }
 
 function getCompetitionWalletKey(agentId, competitionId) {
@@ -872,12 +882,17 @@ async function sweepCompetitionWallet({
     Math.max(0, amount - budgetRecoverable - executionRecoverable),
   );
 
-  const transfer = await withTempoHome(competitionWallet, (tempoHome) =>
-    runTempoWalletTransferJson({
-      amount,
-      to: arenaState.mainLoginWallet.address,
-      tempoHome,
-    }));
+  let transfer;
+  try {
+    transfer = await withTempoHome(competitionWallet, (tempoHome) =>
+      runTempoWalletTransferJson({
+        amount,
+        to: arenaState.mainLoginWallet.address,
+        tempoHome,
+      }));
+  } catch (error) {
+    throw new Error("real agent account sweep is not available yet");
+  }
 
   competitionWallet.balance = 0;
   competitionWallet.budgetBalance = roundMoney(
@@ -1199,7 +1214,7 @@ async function queryTempoTokenBalance(address) {
     },
   );
   const raw = stdout.trim().split(/\s+/)[0] ?? "0";
-  return roundMoney(Number(raw) / 10 ** tokenDecimals);
+  return normalizeTokenAmount(Number(raw) / 10 ** tokenDecimals);
 }
 
 async function refreshCompetitionWalletBalance({
@@ -1266,7 +1281,7 @@ async function runTempoWalletTransferJson({
   };
   const { stdout } = await execFileAsync(
     tempoWalletBinPath,
-    ["-s", "transfer", amount.toFixed(2), tempoUsdToken, to],
+    ["-s", "transfer", formatTokenAmount(amount), tempoUsdToken, to],
     {
       env,
       timeout: 45000,
@@ -1283,7 +1298,7 @@ async function runMainWalletTransferJson({
 }) {
   const { stdout } = await execFileAsync(
     tempoWalletBinPath,
-    ["-s", "transfer", amount.toFixed(2), tempoUsdToken, to],
+    ["-s", "transfer", formatTokenAmount(amount), tempoUsdToken, to],
     {
       env: process.env,
       timeout: 45000,
