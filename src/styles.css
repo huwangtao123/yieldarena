@@ -212,6 +212,14 @@ a {
   text-shadow: 0 0 16px rgba(44, 244, 255, 0.2);
 }
 
+.hero-subheadline {
+  margin-top: 14px;
+  max-width: 44rem;
+  color: var(--text);
+  font-size: 1rem;
+  line-height: 1.55;
+}
+
 .hero-copy p {
   margin-top: 14px;
   max-width: 48rem;
@@ -331,6 +339,29 @@ a {
   gap: 14px;
 }
 
+.hero-route-card {
+  gap: 16px;
+}
+
+.hero-route-steps {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.route-step {
+  border: 1px solid var(--line);
+  background: rgba(44, 244, 255, 0.03);
+  padding: 12px;
+  display: grid;
+  gap: 8px;
+}
+
+.route-step strong {
+  font-size: 0.96rem;
+  font-weight: 500;
+}
+
 .competition-card-top,
 .agent-card-head,
 .panel-header,
@@ -408,6 +439,13 @@ a {
   gap: 16px;
 }
 
+.command-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) minmax(320px, 0.85fr);
+  gap: 16px;
+  align-items: start;
+}
+
 .quick-start-strip {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -429,7 +467,7 @@ a {
 
 .step-list {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 12px;
 }
 
@@ -525,6 +563,26 @@ a {
 
 .agent-card.compact {
   padding: 14px;
+}
+
+.command-card {
+  gap: 14px;
+}
+
+.command-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.command-summary-grid div {
+  display: grid;
+  gap: 6px;
+}
+
+.command-summary-grid strong {
+  font-size: 0.95rem;
+  font-weight: 500;
 }
 
 .budget-picker {
@@ -805,6 +863,11 @@ a {
   align-content: start;
 }
 
+.command-footer {
+  padding-top: 4px;
+  border-top: 1px solid var(--line);
+}
+
 .stack-panel {
   display: grid;
   gap: 12px;
@@ -849,7 +912,8 @@ a {
   .hero-panel,
   .live-grid,
   .competition-detail-grid,
-  .mode-status-grid {
+  .mode-status-grid,
+  .command-grid {
     grid-template-columns: 1fr;
   }
 
@@ -881,11 +945,16 @@ a {
   .step-list,
   .competition-tabs,
   .mode-status-grid,
+  .command-summary-grid,
   .budget-picker,
   .form-grid,
   .competition-stats,
   .match-meta,
   .agent-stat-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .hero-route-steps {
     grid-template-columns: 1fr;
   }
 
