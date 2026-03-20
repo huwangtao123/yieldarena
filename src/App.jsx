@@ -1649,6 +1649,17 @@ function App() {
                   <div className="entry-note compact">
                     Net result = live float + swept back - funded into this competition wallet.
                   </div>
+                  {selectedCompetitionFloat > 0 ? (
+                    <div className="command-actions">
+                      <button
+                        className="ghost-button"
+                        onClick={handleSweepCompetitionWallet}
+                        type="button"
+                      >
+                        Sweep Unused Float
+                      </button>
+                    </div>
+                  ) : null}
                 </article>
               ) : (
                 <div className="entry-note">No competition wallet activity yet.</div>
