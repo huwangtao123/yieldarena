@@ -145,10 +145,54 @@ a {
 }
 
 .agent-row {
+  padding: 12px;
+}
+
+.agent-row-copy {
+  display: grid;
+  gap: 8px;
+}
+
+.agent-row-head,
+.agent-row-sub {
   display: flex;
   justify-content: space-between;
+  gap: 10px;
   align-items: center;
-  padding: 10px 12px;
+}
+
+.agent-row-head strong {
+  font-size: 0.98rem;
+  font-weight: 500;
+}
+
+.agent-row-sub {
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+}
+
+.agent-row-sub span:first-child {
+  overflow-wrap: anywhere;
+}
+
+.agent-row-sub span:last-child {
+  text-align: right;
+}
+
+.agent-row-badge {
+  border: 1px solid var(--line);
+  padding: 4px 8px;
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+}
+
+.agent-row-badge.is-live {
+  border-color: var(--line-strong);
+  color: var(--accent);
 }
 
 .agent-row:hover,

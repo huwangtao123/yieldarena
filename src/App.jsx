@@ -608,6 +608,13 @@ function App() {
       ) ?? arenaState.competitions[0],
     [arenaState.competitions, arenaState.selectedCompetitionId]
   );
+  const competitionById = useMemo(
+    () =>
+      Object.fromEntries(
+        (arenaState.competitions ?? []).map((competition) => [competition.id, competition]),
+      ),
+    [arenaState.competitions]
+  );
   const liveCompetition = useMemo(
     () =>
       arenaState.competitions.find(
@@ -1098,6 +1105,68 @@ function App() {
       detail: "The product stays clearer when one live competition is fully proven before private challenges open.",
     },
   ];
+  const agentRosterItems = useMemo(() => {
+    const liveEntries = Object.values(arenaState.liveCompetitionEntries ?? {});
+
+    return arenaState.agents
+      .map((agent) => {
+        const agentAccount = arenaState.agentAccounts?.[agent.id] ?? null;
+        const entryCount = arenaState.entryHistory.filter((entry) => entry.agentId === agent.id).length;
+        const liveEntry =
+          liveEntries.find(
+            (entry) =>
+              entry.agentId === agent.id && (entry.status === "waiting" || entry.status === "active"),
+          ) ?? null;
+        const balance = Number(agentAccount?.balance ?? 0);
+        const activeCompetitionTitle =
+          competitionById[liveEntry?.competitionId ?? ""]?.title ?? "Arena";
+
+        let badge = "new";
+        if (liveEntry) {
+          badge = "live";
+        } else if (balance > 0) {
+          badge = "funded";
+        } else if (entryCount > 0) {
+          badge = "played";
+        } else if (agentAccount) {
+          badge = "ready";
+        }
+
+        return {
+          agent,
+          badge,
+          isLive: Boolean(liveEntry),
+          entryCount,
+          balance,
+          activityLabel: liveEntry
+            ? `${activeCompetitionTitle} · ${liveEntry.status}`
+            : entryCount > 0
+              ? "played in arena"
+              : "new to arena",
+          summaryLabel:
+            entryCount > 0 || balance > 0
+              ? [
+                  entryCount > 0 ? `${entryCount} ${entryCount === 1 ? "entry" : "entries"}` : null,
+                  balance > 0 ? `$${balance.toFixed(2)} float` : null,
+                ]
+                  .filter(Boolean)
+                  .join(" · ")
+              : "no float yet",
+        };
+      })
+      .sort((left, right) => {
+        if (left.isLive !== right.isLive) return Number(right.isLive) - Number(left.isLive);
+        if ((left.balance > 0) !== (right.balance > 0)) return Number(right.balance > 0) - Number(left.balance > 0);
+        if (left.entryCount !== right.entryCount) return right.entryCount - left.entryCount;
+        return left.agent.name.localeCompare(right.agent.name);
+      });
+  }, [
+    arenaState.agents,
+    arenaState.agentAccounts,
+    arenaState.entryHistory,
+    arenaState.liveCompetitionEntries,
+    competitionById,
+  ]);
   const commandStatusMessage = selectedLiveCompetitionEntry && liveMatchActive
     ? `Live now in match ${selectedLiveCompetitionEntry.gameId}. The arena will keep playing while Playable Yield remains.${selectedLiveCompetitionEntry.lastMove ? ` Last move: ${selectedLiveCompetitionEntry.lastMove.from} → ${selectedLiveCompetitionEntry.lastMove.to}.` : ""}`
     : selectedRunPlan
@@ -1134,15 +1203,23 @@ function App() {
           <div className="sidebar-section">
             <div className="panel-label">AGENT ROSTER</div>
             <div className="sidebar-agents">
-              {arenaState.agents.map((agent) => (
+              {agentRosterItems.map(({ agent, badge, activityLabel, summaryLabel, isLive }) => (
                 <button
                   className={`agent-row${agent.id === arenaState.selectedAgentId ? " active" : ""}`}
                   key={agent.id}
                   onClick={() => handleAgentSelect(agent.id)}
                   type="button"
                 >
-                  <span>{agent.name}</span>
-                  <span className="tiny-label">{agent.status}</span>
+                  <div className="agent-row-copy">
+                    <div className="agent-row-head">
+                      <strong>{agent.name}</strong>
+                      <span className={`agent-row-badge${isLive ? " is-live" : ""}`}>{badge}</span>
+                    </div>
+                    <div className="agent-row-sub">
+                      <span>{activityLabel}</span>
+                      <span>{summaryLabel}</span>
+                    </div>
+                  </div>
                 </button>
               ))}
             </div>
