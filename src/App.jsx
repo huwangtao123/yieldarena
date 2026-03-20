@@ -1491,8 +1491,20 @@ function App() {
                   {runInProgress
                       ? "A live run is already underway. The arena will keep advancing as turns settle."
                       : `The arena will Activate → Fund → Enter → Auto-Run using ${selectedBudget?.label ?? "Playable Yield"}.`}
+                  </div>
                 </div>
-              </div>
+                {feedbackError ? (
+                  <article className="feedback-card feedback-card-error">
+                    <span className="tiny-label">Latest run result</span>
+                    <p>{feedbackError}</p>
+                  </article>
+                ) : null}
+                {feedbackSuccess ? (
+                  <article className="feedback-card">
+                    <span className="tiny-label">Latest run result</span>
+                    <p>{feedbackSuccess}</p>
+                  </article>
+                ) : null}
 
                 <div className="entry-note">{commandStatusMessage}</div>
                 {selectedLiveCompetitionEntry?.lastMove ? (
@@ -1507,19 +1519,6 @@ function App() {
                 ) : null}
               </article>
             </div>
-            {feedbackError ? (
-              <article className="feedback-card feedback-card-error">
-                <span className="tiny-label">Run feedback</span>
-                <p>{feedbackError}</p>
-              </article>
-            ) : null}
-            {feedbackSuccess ? (
-              <article className="feedback-card">
-                <span className="tiny-label">Run feedback</span>
-                <p>{feedbackSuccess}</p>
-              </article>
-            ) : null}
-
             <div className="command-actions command-footer">
               <button
                 className="ghost-button"
