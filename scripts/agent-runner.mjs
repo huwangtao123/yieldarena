@@ -5,7 +5,7 @@ function parseArgs(argv) {
     baseUrl: "http://127.0.0.1:4173",
     agentId: "yield-arena-bot",
     competitionId: "mpp-checkers",
-    budgetSource: "protocol",
+    budgetSource: "auto",
     nickname: "",
     reset: false,
   };
@@ -50,7 +50,7 @@ Options:
   --base-url <url>          Arena base URL (default: http://127.0.0.1:4173)
   --agent-id <id>           Arena agent id (default: yield-arena-bot)
   --competition-id <id>     Competition id (default: mpp-checkers)
-  --budget-source <source>  protocol or wallet (default: protocol)
+  --budget-source <source>  auto, protocol, or wallet (default: auto)
   --nickname <name>         Checkers nickname override
   --reset                   Reset arena demo state before running
   --help                    Show this help
@@ -191,6 +191,7 @@ async function run() {
     const entryResult = await postJson(options.baseUrl, "/api/arena/quick-enter", {
       agentId: agent.id,
       competitionId: competition.id,
+      budgetSource,
       nickname: options.nickname || agent.name,
     });
 
@@ -201,6 +202,15 @@ async function run() {
       `agent account: ${entryResult.registration?.address ?? entryResult.entry.walletAddress}`,
       `signer key: ${entryResult.signer?.keyId ?? "existing"}`,
     ]);
+
+    if (entryResult.run) {
+      logSection("run", [
+        `live now: 1`,
+        `queued next: ${entryResult.run.runPlan?.remainingEntries ?? 0}`,
+        `target matches: ${entryResult.run.runPlan?.targetEntries ?? 1}`,
+        `spent now: ${entryResult.entry.amount.toFixed(2)}`,
+      ]);
+    }
 
     logSection("entry", [
       `agent: ${entryResult.entry.agentName}`,

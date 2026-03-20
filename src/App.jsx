@@ -34,7 +34,7 @@ const fallbackArenaState = {
   todayYield: 0.08,
   playBudget: 0.08,
   selectedAgentId: "yield-arena-bot",
-  selectedBudgetSource: "protocol",
+  selectedBudgetSource: "auto",
   selectedCompetitionId: "mpp-checkers",
   agents: [
     {
@@ -104,6 +104,7 @@ const fallbackArenaState = {
     },
   ],
   budgetSources: {
+    auto: { key: "auto", label: "Play Budget", available: 0.08 },
     protocol: { key: "protocol", label: "Protocol Budget", available: 0.01 },
     wallet: { key: "wallet", label: "Wallet Budget", available: 0.07 },
   },
@@ -145,6 +146,7 @@ const fallbackArenaState = {
   ],
   competitionWallets: {},
   agentAccounts: {},
+  runPlans: {},
   liveCompetitionEntries: {},
   registrations: {},
   entryHistory: [],
@@ -181,6 +183,7 @@ function App() {
   const [signerError, setSignerError] = useState("");
   const [signerNotice, setSignerNotice] = useState("");
   const [lastEntry, setLastEntry] = useState(null);
+  const [lastRun, setLastRun] = useState(null);
   const [registrationForm, setRegistrationForm] = useState({
     nickname: "yieldArenaBot",
   });
@@ -326,6 +329,43 @@ function App() {
     };
   }, [selectedContender]);
 
+  useEffect(() => {
+    const hasQueuedRun = Object.values(arenaState.runPlans ?? {}).some(
+      (plan) => plan?.status === "armed" && plan?.remainingEntries > 0,
+    );
+
+    if (!hasQueuedRun) {
+      return undefined;
+    }
+
+    let active = true;
+
+    async function advanceRun() {
+      try {
+        const response = await fetch("/api/arena/advance-run", {
+          method: "POST",
+        });
+        if (!response.ok) {
+          return;
+        }
+
+        const data = await response.json();
+        if (!active) return;
+        setArenaState(data.arenaState);
+        setArenaLoaded(true);
+        setArenaStatus("live");
+      } catch {
+        if (!active) return;
+      }
+    }
+
+    const interval = window.setInterval(advanceRun, 8000);
+    return () => {
+      active = false;
+      window.clearInterval(interval);
+    };
+  }, [arenaState.runPlans]);
+
   async function updateArenaState(path, payload) {
     const response = await fetch(path, {
       method: "POST",
@@ -426,6 +466,7 @@ function App() {
       setArenaLoaded(true);
       setArenaStatus("live");
       setLastEntry(null);
+      setLastRun(null);
       setRegistrationForm({
         nickname: data.agents[0]?.name ?? "yieldArenaBot",
       });
@@ -468,6 +509,10 @@ function App() {
     arenaState.competitionWallets?.[
       `${arenaState.selectedAgentId}:${arenaState.selectedCompetitionId}`
     ] ?? null;
+  const selectedRunPlan =
+    arenaState.runPlans?.[
+      `${arenaState.selectedAgentId}:${arenaState.selectedCompetitionId}`
+    ] ?? null;
   const selectedLiveCompetitionEntry =
     arenaState.liveCompetitionEntries?.[
       `${arenaState.selectedAgentId}:${arenaState.selectedCompetitionId}`
@@ -482,30 +527,44 @@ function App() {
   const availableForEntry = (selectedBudget?.available ?? 0) + (selectedCompetitionWallet?.balance ?? 0);
   const budgetReady = availableForEntry >= entryPrice;
   const agentReady = Boolean(selectedAgentRegistration && selectedAgentSigner);
-  const readinessCards = [
+  const runnableBudget = selectedBudget?.key === "auto" ? arenaState.playBudget : availableForEntry;
+  const maxRunnableEntries = entryPrice > 0 ? Math.max(0, Math.floor(runnableBudget / entryPrice)) : 0;
+  const runInProgress = Boolean(
+    selectedRunPlan &&
+      (selectedRunPlan.status === "armed" || selectedLiveCompetitionEntry?.status === "waiting" || selectedLiveCompetitionEntry?.status === "active")
+  );
+  const fundingSummary =
+    selectedBudget?.key === "auto"
+      ? "Auto uses protocol starter first, then wallet yield."
+      : selectedBudget?.key === "protocol"
+        ? "Only protocol starter budget will be used."
+        : "Only wallet yield budget will be used.";
+  const flowCards = [
     {
-      id: "agent",
-      label: "Agent",
-      value: agentReady ? "Ready" : "Needs activation",
-      detail: agentReady
-        ? `${selectedAgent?.name} can enter ${selectedCompetition?.title}`
-        : `Create ${selectedAgent?.name}'s competition profile once`,
+      id: "selected",
+      label: "1. Selected Agent",
+      value: selectedAgent?.name ?? "Choose an agent",
+      detail: "Pick who should keep playing from the left rail.",
     },
     {
-      id: "budget",
-      label: "Budget",
-      value: `${selectedBudget?.label ?? "Budget"} · ${availableForEntry.toFixed(2)}`,
-      detail: budgetReady
-        ? "Enough allowance is available for the next entry."
-        : "Switch budget source or refresh the demo allowance.",
+      id: "funding",
+      label: "2. Funding",
+      value: `${selectedBudget?.label ?? "Play Budget"} · ${runnableBudget.toFixed(2)}`,
+      detail: fundingSummary,
     },
     {
-      id: "competition",
-      label: "Competition",
-      value: competitionIsLive ? "Live now" : "Not live",
-      detail: competitionIsLive
-        ? `${selectedCompetition?.title} is ready for paid entry.`
-        : "Choose a live competition before entering.",
+      id: "run",
+      label: "3. Auto Run",
+      value: runInProgress
+        ? `${selectedRunPlan?.completedEntries ?? 1} live · ${selectedRunPlan?.remainingEntries ?? 0} queued`
+        : budgetReady && competitionIsLive
+          ? `${Math.max(1, maxRunnableEntries)} matches ready`
+          : "Waiting for budget",
+      detail: runInProgress
+        ? "The next match starts automatically after the current one settles."
+        : competitionIsLive
+          ? `Starts 1 live ${selectedCompetition?.title} match now, then keeps entering until the run budget is exhausted.`
+          : "Choose a live competition before starting a run.",
     },
   ];
 
@@ -566,6 +625,7 @@ function App() {
         body: JSON.stringify({
           agentId: arenaState.selectedAgentId,
           competitionId: arenaState.selectedCompetitionId,
+          budgetSource: arenaState.selectedBudgetSource,
           nickname: registrationForm.nickname.trim(),
         }),
       });
@@ -579,17 +639,19 @@ function App() {
       setArenaLoaded(true);
       setArenaStatus("live");
       setLastEntry(data.entry);
+      setLastRun(data.run ?? null);
       if (data.entry?.matchId) {
         setSelectedGameId(data.entry.matchId);
       }
       const requestedNickname = registrationForm.nickname.trim();
       const resolvedNickname = data.registration?.nickname ?? requestedNickname;
+      const runSummary = data.run
+        ? `1 live now, ${data.run.runPlan?.remainingEntries ?? 0} queued next`
+        : `${selectedCompetition?.title}`;
       setWalletActionNotice(
         data.activation?.registrationCreated || data.activation?.signerCreated
-          ? `Arena activated ${selectedAgent?.name}${resolvedNickname !== requestedNickname ? ` as ${resolvedNickname}` : ""}, funded the agent account, and entered ${selectedCompetition?.title}.`
-          : data.topUp
-            ? `Arena funded the agent account from ${data.topUp.source} and entered ${selectedCompetition?.title}.`
-            : `${selectedAgent?.name} entered ${selectedCompetition?.title}.`
+          ? `Arena activated ${selectedAgent?.name}${resolvedNickname !== requestedNickname ? ` as ${resolvedNickname}` : ""} and queued ${runSummary}.`
+          : `Arena queued ${runSummary}.`
       );
     } catch (error) {
       setEntryError(error.message || "quick enter failed");
@@ -860,9 +922,9 @@ function App() {
 
           <section className="panel command-panel">
             <div className="panel-label">COMMAND</div>
-            <div className="quick-start-strip">
-              {readinessCards.map((card) => (
-                <article className="quick-start-card" key={card.id}>
+              <div className="step-list">
+              {flowCards.map((card) => (
+                <article className="step-card" key={card.id}>
                   <span className="tiny-label">{card.label}</span>
                   <strong>{card.value}</strong>
                   <div className="entry-note">{card.detail}</div>
@@ -893,6 +955,22 @@ function App() {
                   <strong>{(selectedCompetitionWallet?.balance ?? 0).toFixed(2)}</strong>
                 </div>
               </div>
+              {selectedRunPlan ? (
+                <div className="agent-stat-grid compact">
+                  <div>
+                    <span className="tiny-label">run status</span>
+                    <strong>{selectedRunPlan.status}</strong>
+                  </div>
+                  <div>
+                    <span className="tiny-label">live now</span>
+                    <strong>{selectedRunPlan.completedEntries}</strong>
+                  </div>
+                  <div>
+                    <span className="tiny-label">queued next</span>
+                    <strong>{selectedRunPlan.remainingEntries}</strong>
+                  </div>
+                </div>
+              ) : null}
               {selectedLiveCompetitionEntry ? (
                 <div className="agent-stat-grid">
                   <div>
@@ -919,7 +997,7 @@ function App() {
               }}
             >
               <label className="field-block">
-                <span className="tiny-label">competition nickname</span>
+                <span className="tiny-label">competition nickname (optional)</span>
                 <input
                   className="arena-input"
                   value={registrationForm.nickname}
@@ -933,19 +1011,8 @@ function App() {
                   required
                 />
               </label>
-
-              <div className="budget-picker">
-                {Object.values(arenaState.budgetSources).map((source) => (
-                  <button
-                    className={`budget-chip${source.key === arenaState.selectedBudgetSource ? " active" : ""}`}
-                    key={source.key}
-                    onClick={() => handleBudgetSelect(source.key)}
-                    type="button"
-                  >
-                    <span>{source.label}</span>
-                    <span className="tiny-label">{source.available.toFixed(2)} ready</span>
-                  </button>
-                ))}
+              <div className="entry-note entry-note-strong">
+                Leave the default nickname if you want. Play Budget is used automatically, and the arena keeps the run going while budget remains.
               </div>
 
               <div className="command-actions">
@@ -958,23 +1025,17 @@ function App() {
                   {isResetting ? "Resetting..." : "Reset Demo"}
                 </button>
                 <button
-                  className="secondary-button"
+                  className="action-button"
                   type="submit"
-                  disabled={isEntering || !competitionIsLive || !budgetReady}
+                  disabled={isEntering || !competitionIsLive || !budgetReady || runInProgress}
                 >
                   {isEntering
-                    ? "Entering..."
-                    : competitionIsLive
-                      ? `Quick Enter ${selectedCompetition?.title ?? "Competition"}`
-                      : "Competition Not Live"}
-                </button>
-                <button
-                  className="action-button"
-                  onClick={handleActivateAgent}
-                  type="button"
-                  disabled={isActivating}
-                >
-                  {isActivating ? "Activating..." : `Activate ${selectedAgent?.name ?? "Agent"}`}
+                    ? "Starting Run..."
+                    : runInProgress
+                      ? "Run In Progress"
+                      : competitionIsLive
+                        ? `Start ${Math.max(1, maxRunnableEntries)}-Match Auto Run`
+                        : "Competition Not Live"}
                 </button>
               </div>
 
@@ -985,16 +1046,36 @@ function App() {
               {signerNotice ? <div className="entry-note">{signerNotice}</div> : null}
               {walletActionNotice ? <div className="entry-note">{walletActionNotice}</div> : null}
               <div className="entry-note">
-                {latestEntry
-                  ? `${latestEntry.agentName} entered via ${latestEntry.budgetSource}${latestEntry.matchId ? ` · match ${latestEntry.matchId}` : ""}${latestEntry.actualPlayerNickname ? ` · attended as ${latestEntry.actualPlayerNickname}` : ""} for $${latestEntry.amount.toFixed(2)}`
-                  : "Choose an agent, set a nickname, pick a funding source, then use Quick Enter. Yield Arena handles activation, signer setup, and wallet funding behind the scenes."}
+                {selectedRunPlan
+                    ? `Run status: ${selectedRunPlan.completedEntries} live started, ${selectedRunPlan.remainingEntries} queued next. The next match will start automatically after the current one finishes.`
+                  : lastRun
+                    ? `Latest run started with 1 live match and ${lastRun.runPlan?.remainingEntries ?? 0} queued next.`
+                    : latestEntry
+                      ? `${latestEntry.agentName} entered via ${latestEntry.budgetSource}${latestEntry.matchId ? ` · match ${latestEntry.matchId}` : ""}${latestEntry.actualPlayerNickname ? ` · attended as ${latestEntry.actualPlayerNickname}` : ""} for $${latestEntry.amount.toFixed(2)}`
+                    : "Pick an agent and press Start. Yield Arena handles activation, signer setup, and run funding automatically."}
               </div>
 
               <details className="advanced-details">
-                <summary>Show protocol details</summary>
+                <summary>Show protocol details and funding override</summary>
                 <div className="advanced-details-body">
                   <div className="entry-note">
                     Target model: owner vaults fund the agent account, then the agent account spends into competitions. Today the live MPP join still executes through the owner signer.
+                  </div>
+                  <div className="field-block">
+                    <span className="tiny-label">funding override</span>
+                    <div className="budget-picker">
+                      {Object.values(arenaState.budgetSources).map((source) => (
+                        <button
+                          className={`budget-chip${source.key === arenaState.selectedBudgetSource ? " active" : ""}`}
+                          key={source.key}
+                          onClick={() => handleBudgetSelect(source.key)}
+                          type="button"
+                        >
+                          <span>{source.label}</span>
+                          <span className="tiny-label">{source.available.toFixed(2)} ready</span>
+                        </button>
+                      ))}
+                    </div>
                   </div>
                   <div className="agent-stat-line stacked">
                     <span className="tiny-label">owner account</span>
@@ -1055,6 +1136,14 @@ function App() {
                     </div>
                   ) : null}
                   <div className="command-actions">
+                    <button
+                      className="secondary-button"
+                      onClick={handleActivateAgent}
+                      type="button"
+                      disabled={isActivating}
+                    >
+                      {isActivating ? "Activating..." : `Prepare ${selectedAgent?.name ?? "Agent"}`}
+                    </button>
                     <button className="secondary-button" onClick={handleRegisterAgent} type="button" disabled={isRegistering}>
                       {isRegistering ? "Creating..." : "Manual Register"}
                     </button>
