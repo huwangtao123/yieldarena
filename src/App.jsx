@@ -144,6 +144,7 @@ const fallbackArenaState = {
     },
   ],
   competitionWallets: {},
+  agentAccounts: {},
   liveCompetitionEntries: {},
   registrations: {},
   entryHistory: [],
@@ -453,6 +454,8 @@ function App() {
   );
 
   const selectedAgentRegistration = arenaState.registrations?.[arenaState.selectedAgentId];
+  const selectedAgentAccount =
+    arenaState.agentAccounts?.[arenaState.selectedAgentId] ?? null;
   const selectedCompetitionWallet =
     arenaState.competitionWallets?.[
       `${arenaState.selectedAgentId}:${arenaState.selectedCompetitionId}`
@@ -480,13 +483,13 @@ function App() {
     {
       id: "step-2",
       label: "Step 2",
-      title: "Register for MPP Checkers",
+      title: "Provision agent account",
       detail: !arenaLoaded
         ? "Syncing current arena state"
-        : selectedAgentRegistration
-        ? `${selectedAgentRegistration.nickname} wallet is ready`
-        : "Provision a competition wallet linked to the main login",
-      status: !arenaLoaded ? "syncing" : selectedAgentRegistration ? "done" : "required",
+        : selectedAgentAccount
+        ? `${selectedAgentAccount.address.slice(0, 8)}... · ${selectedAgentAccount.signerStatus}`
+        : "Provision a Tempo-native agent account linked to the owner account",
+      status: !arenaLoaded ? "syncing" : selectedAgentAccount ? "done" : "required",
     },
     {
       id: "step-3",
@@ -744,31 +747,47 @@ function App() {
                 <span>{selectedAgent?.roi}</span>
               </div>
               <div className="agent-stat-line">
-                <span className="tiny-label">checkers identity</span>
+                <span className="tiny-label">agent account</span>
                 <span>
-                  {!arenaLoaded ? "syncing" : selectedAgentRegistration ? "registered" : "not registered"}
+                  {!arenaLoaded ? "syncing" : selectedAgentAccount ? "provisioned" : "not provisioned"}
                 </span>
               </div>
               <div className="agent-stat-line stacked">
-                <span className="tiny-label">main login wallet</span>
+                <span className="tiny-label">owner account</span>
                 <span>{arenaState.mainLoginWallet.address}</span>
               </div>
-              {selectedAgentRegistration ? (
+              {selectedAgentAccount ? (
                 <div className="agent-stat-line stacked">
-                  <span className="tiny-label">registered nickname</span>
-                  <span>{selectedAgentRegistration.nickname}</span>
+                  <span className="tiny-label">agent account address</span>
+                  <span>{selectedAgentAccount.address}</span>
                 </div>
               ) : null}
               {selectedAgentRegistration ? (
                 <div className="agent-stat-line stacked">
-                  <span className="tiny-label">generated checkers wallet</span>
-                  <span>{selectedAgentRegistration.address}</span>
+                  <span className="tiny-label">competition profile</span>
+                  <span>{selectedAgentRegistration.nickname}</span>
+                </div>
+              ) : null}
+              {selectedAgentAccount ? (
+                <div className="agent-stat-grid">
+                  <div>
+                    <span className="tiny-label">signer status</span>
+                    <strong>{selectedAgentAccount.signerStatus}</strong>
+                  </div>
+                  <div>
+                    <span className="tiny-label">execution mode</span>
+                    <strong>{selectedAgentAccount.executionMode}</strong>
+                  </div>
+                  <div>
+                    <span className="tiny-label">account type</span>
+                    <strong>{selectedAgentAccount.accountType}</strong>
+                  </div>
                 </div>
               ) : null}
               {selectedCompetitionWallet ? (
                 <div className="agent-stat-grid">
                   <div>
-                    <span className="tiny-label">wallet balance</span>
+                    <span className="tiny-label">agent float</span>
                     <strong>{(selectedCompetitionWallet.balance ?? 0).toFixed(2)}</strong>
                   </div>
                   <div>
@@ -831,7 +850,7 @@ function App() {
 
             <form className="registration-form" onSubmit={handleRegisterAgent}>
               <label className="field-block">
-                <span className="tiny-label">checkers nickname</span>
+                <span className="tiny-label">mpp checkers nickname</span>
                 <input
                   className="arena-input"
                   value={registrationForm.nickname}
@@ -856,7 +875,7 @@ function App() {
                   {isResetting ? "Resetting..." : "Reset Demo"}
                 </button>
                 <button className="secondary-button" type="submit" disabled={isRegistering}>
-                  {isRegistering ? "Creating..." : "Provision Game Wallet"}
+                  {isRegistering ? "Creating..." : "Provision Agent Account"}
                 </button>
                 <button
                   className="secondary-button"
@@ -895,21 +914,21 @@ function App() {
               {registrationError ? <div className="entry-note error">{registrationError}</div> : null}
               {walletActionError ? <div className="entry-note error">{walletActionError}</div> : null}
               {entryError ? <div className="entry-note error">{entryError}</div> : null}
-              {selectedAgentRegistration ? (
+              {selectedAgentAccount ? (
                 <div className="entry-note">
-                  A new Tempo competition wallet was generated for {selectedAgentRegistration.nickname} and linked to the main arena login.
+                  A Tempo-native agent account now exists for {selectedAgent?.name}. It can hold float, receive top-ups, and own competition profiles.
                 </div>
               ) : null}
-              {selectedCompetitionWallet ? (
+              {selectedAgentAccount ? (
                 <div className="entry-note">
-                  Selected vault allowance tops up the competition wallet first. Match entry then spends from that wallet, not from principal.
+                  Target model: owner vaults fund the agent account, then the agent account spends into competitions. Today the live MPP join still executes through the owner signer.
                 </div>
               ) : null}
               {walletActionNotice ? <div className="entry-note">{walletActionNotice}</div> : null}
               <div className="entry-note">
                 {latestEntry
                   ? `${latestEntry.agentName} entered via ${latestEntry.budgetSource}${latestEntry.matchId ? ` · match ${latestEntry.matchId}` : ""}${latestEntry.actualPlayerNickname ? ` · attended as ${latestEntry.actualPlayerNickname}` : ""} for $${latestEntry.amount.toFixed(2)}`
-                  : "Flow: pick an agent, provision a competition wallet, top it up from protocol or wallet allowance, then enter a live mode."}
+                  : "Flow: pick an agent, provision an agent account, top it up from protocol or wallet allowance, then enter a live mode."}
               </div>
             </form>
           </section>

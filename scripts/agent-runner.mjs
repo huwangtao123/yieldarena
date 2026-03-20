@@ -180,13 +180,13 @@ async function run() {
       state = registrationResult.arenaState;
       logSection("registration", [
         `nickname: ${registration.nickname}`,
-        `competition wallet: ${registration.address}`,
+        `agent account: ${registration.address}`,
         `parent wallet: ${registration.parentWallet}`,
       ]);
     } else {
       logSection("registration", [
         `nickname: ${registration.nickname}`,
-        `competition wallet: ${registration.address}`,
+        `agent account: ${registration.address}`,
         `parent wallet: ${registration.parentWallet}`,
         "status: existing registration reused",
       ]);
