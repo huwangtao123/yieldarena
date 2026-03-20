@@ -11,6 +11,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const dataDir = path.join(__dirname, ".data");
 const registrationsPath = path.join(dataDir, "registrations.json");
 const competitionWalletsPath = path.join(dataDir, "competition-wallets.json");
+const agentSignersPath = path.join(dataDir, "agent-signers.json");
 const execFileAsync = promisify(execFile);
 const tempoBinPath = process.env.HOME
   ? path.join(process.env.HOME, ".local", "bin", "tempo")
@@ -139,6 +140,7 @@ function createInitialArenaState() {
     },
     competitionWallets: {},
     agentAccounts: {},
+    agentSigners: {},
     liveCompetitionEntries: {},
     fundingLedger: initialLedger,
     budgetLedger: initialLedger,
@@ -195,6 +197,29 @@ function persistCompetitionWallets() {
   );
 }
 
+function loadPersistedAgentSigners() {
+  if (!existsSync(agentSignersPath)) {
+    return {};
+  }
+
+  try {
+    const raw = readFileSync(agentSignersPath, "utf8");
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function persistAgentSigners() {
+  mkdirSync(dataDir, { recursive: true });
+  writeFileSync(
+    agentSignersPath,
+    JSON.stringify(arenaState.agentSigners, null, 2),
+    "utf8",
+  );
+}
+
 function roundMoney(value) {
   return Number(value.toFixed(2));
 }
@@ -225,11 +250,46 @@ function createCompetitionWalletRecord({ agentId, competitionId, address, parent
   };
 }
 
+function createAgentSignerRecord({
+  agentId,
+  accountAddress,
+  executionMode = "delegated_main_wallet",
+}) {
+  const now = Date.now();
+  const expiry = new Date(now + 30 * 24 * 60 * 60 * 1000).toISOString();
+  const publicKey = `0x${randomBytes(32).toString("hex")}`;
+
+  return {
+    agentId,
+    accountAddress,
+    keyId: `signer-${agentId}-${now}`,
+    signatureType: "P256",
+    publicKey,
+    status: "provisioned",
+    executionMode,
+    provisionedAt: new Date(now).toISOString(),
+    lastUsedAt: null,
+    expiry,
+    enforceLimits: true,
+    spendingLimits: [
+      {
+        token: "USDC",
+        limit: 1,
+        remaining: 1,
+        periodSeconds: 86400,
+      },
+    ],
+    allowedCompetitions: ["mpp-checkers"],
+    allowedDestinations: ["mpp-checkers"],
+  };
+}
+
 function buildAgentAccounts() {
   const nextAgentAccounts = {};
 
   for (const agent of arenaState.agents) {
     const legacyRegistration = arenaState.registrations[agent.id];
+    const signer = arenaState.agentSigners[agent.id] ?? null;
     const competitionProfiles = {};
 
     if (legacyRegistration) {
@@ -252,13 +312,14 @@ function buildAgentAccounts() {
       accountType: "tempo_agent_account",
       address: competitionWallet?.address ?? legacyRegistration?.address ?? null,
       parentAccount: arenaState.mainLoginWallet.address,
-      signerStatus: legacyRegistration ? "identity_provisioned" : "pending",
-      executionMode:
-        legacyRegistration?.address === arenaState.mainLoginWallet.address
+      signer,
+      signerStatus: signer?.status ?? (legacyRegistration ? "identity_provisioned" : "pending"),
+      executionMode: signer?.executionMode ??
+        (legacyRegistration?.address === arenaState.mainLoginWallet.address
           ? "native"
           : legacyRegistration
             ? "delegated_main_wallet"
-            : "pending",
+            : "pending"),
       balance: competitionWallet?.balance ?? 0,
       fundedTotals: competitionWallet?.fundedTotals ?? {
         protocol: 0,
@@ -414,6 +475,7 @@ function sweepCompetitionWallet({
 
 arenaState.registrations = loadPersistedRegistrations();
 arenaState.competitionWallets = loadPersistedCompetitionWallets();
+arenaState.agentSigners = loadPersistedAgentSigners();
 hydrateCompetitionWalletsFromRegistrations();
 syncDerivedArenaState();
 
@@ -424,6 +486,9 @@ function resetArenaState() {
   }
   if (existsSync(competitionWalletsPath)) {
     unlinkSync(competitionWalletsPath);
+  }
+  if (existsSync(agentSignersPath)) {
+    unlinkSync(agentSignersPath);
   }
 }
 
@@ -635,6 +700,54 @@ function arenaDevApi() {
         }
       });
 
+      server.middlewares.use("/api/arena/provision-signer", async (req, res) => {
+        if (req.method !== "POST") {
+          json(res, 405, { error: "method not allowed" });
+          return;
+        }
+
+        try {
+          const body = await readJsonBody(req);
+          const agentId = body.agentId ?? arenaState.selectedAgentId;
+          const agentAccount = arenaState.agentAccounts[agentId];
+          const registration = arenaState.registrations[agentId];
+
+          if (!agentAccount || !registration) {
+            json(res, 409, { error: "agent account is not provisioned yet" });
+            return;
+          }
+
+          if (arenaState.agentSigners[agentId]) {
+            syncDerivedArenaState();
+            json(res, 200, {
+              signer: arenaState.agentSigners[agentId],
+              arenaState,
+            });
+            return;
+          }
+
+          const signer = createAgentSignerRecord({
+            agentId,
+            accountAddress: agentAccount.address,
+            executionMode:
+              registration.address === arenaState.mainLoginWallet.address
+                ? "native"
+                : "delegated_main_wallet",
+          });
+
+          arenaState.agentSigners[agentId] = signer;
+          persistAgentSigners();
+          syncDerivedArenaState();
+
+          json(res, 200, {
+            signer,
+            arenaState,
+          });
+        } catch (error) {
+          json(res, 400, { error: error.message || "signer provisioning failed" });
+        }
+      });
+
       server.middlewares.use("/api/arena/top-up", async (req, res) => {
         if (req.method !== "POST") {
           json(res, 405, { error: "method not allowed" });
@@ -720,6 +833,7 @@ function arenaDevApi() {
           const agent = arenaState.agents.find(
             (item) => item.id === arenaState.selectedAgentId,
           );
+          const agentSigner = arenaState.agentSigners[arenaState.selectedAgentId];
           const registration = arenaState.registrations[arenaState.selectedAgentId];
           const competition = arenaState.competitions.find(
             (item) => item.id === competitionId,
@@ -732,6 +846,19 @@ function arenaDevApi() {
 
           if (!registration) {
             json(res, 409, { error: "agent is not registered for this competition" });
+            return;
+          }
+
+          if (!agentSigner || agentSigner.status !== "provisioned") {
+            json(res, 409, { error: "agent signer is not provisioned" });
+            return;
+          }
+
+          if (
+            agentSigner.allowedCompetitions?.length &&
+            !agentSigner.allowedCompetitions.includes(competitionId)
+          ) {
+            json(res, 409, { error: "competition is not allowed by signer policy" });
             return;
           }
 
@@ -799,20 +926,20 @@ function arenaDevApi() {
               winner: remoteState.winner ?? null,
               opponent:
                 remoteJoin.color === "black" ? remoteState.red ?? null : remoteState.black ?? null,
-              participantMode:
-                registration.address === arenaState.mainLoginWallet.address
-                  ? "native"
-                  : "delegated_main_wallet",
+              participantMode: agentSigner.executionMode,
               payerWallet: arenaState.mainLoginWallet.address,
               payerNickname: actualPlayerNickname ?? null,
               registeredWallet: registration.address,
               registeredNickname: registration.nickname,
+              signerKeyId: agentSigner.keyId,
               joinedAt: new Date().toISOString(),
               lastSyncedAt: new Date().toISOString(),
             };
 
             arenaState.liveCompetitionEntries[walletKey] = liveEntry;
           }
+
+          agentSigner.lastUsedAt = new Date().toISOString();
 
           competitionWallet.balance = roundMoney(competitionWallet.balance - entryCost);
           competitionWallet.spentTotal = roundMoney(
@@ -834,8 +961,9 @@ function arenaDevApi() {
             matchId: remoteJoin?.game_id ?? null,
             matchStatus: remoteState?.status ?? remoteJoin?.status ?? null,
             color: remoteJoin?.color ?? null,
-            participantMode: liveEntry?.participantMode ?? "simulated",
+            participantMode: liveEntry?.participantMode ?? agentSigner.executionMode,
             actualPlayerNickname: liveEntry?.payerNickname ?? null,
+            signerKeyId: agentSigner.keyId,
             createdAt: new Date().toISOString(),
           };
 
@@ -856,6 +984,7 @@ function arenaDevApi() {
           addFundingLedgerItem(ledgerItem);
           syncDerivedArenaState();
           persistCompetitionWallets();
+          persistAgentSigners();
 
           json(res, 200, {
             entry,
