@@ -1007,6 +1007,18 @@ function App() {
   const selectedAgentEntries = arenaState.entryHistory.filter(
     (entry) => entry.agentId === selectedAgent?.id
   ).length;
+  const latestRunResultMessage = feedbackError
+    ? feedbackError
+    : feedbackSuccess
+      ? feedbackSuccess
+      : selectedAgentLatestEntry
+        ? formatFeedbackSuccess("Latest completed entry", {
+            amount: selectedAgentLatestEntry.amount ?? 0,
+            source: selectedAgentLatestEntry.budgetSource ?? "wallet",
+            remaining: arenaState.playBudget,
+            nextStep: "Press Start Auto Run again to open the next match.",
+          })
+        : "No run yet. Press Start Auto Run to activate the agent, fund the entry, and start the first live match.";
   const competitionFacts = [
     {
       label: "Status",
@@ -1493,18 +1505,10 @@ function App() {
                       : `The arena will Activate → Fund → Enter → Auto-Run using ${selectedBudget?.label ?? "Playable Yield"}.`}
                   </div>
                 </div>
-                {feedbackError ? (
-                  <article className="feedback-card feedback-card-error">
-                    <span className="tiny-label">Latest run result</span>
-                    <p>{feedbackError}</p>
-                  </article>
-                ) : null}
-                {feedbackSuccess ? (
-                  <article className="feedback-card">
-                    <span className="tiny-label">Latest run result</span>
-                    <p>{feedbackSuccess}</p>
-                  </article>
-                ) : null}
+                <article className={`feedback-card${feedbackError ? " feedback-card-error" : ""}`}>
+                  <span className="tiny-label">Latest run result</span>
+                  <p>{latestRunResultMessage}</p>
+                </article>
 
                 <div className="entry-note">{commandStatusMessage}</div>
                 {selectedLiveCompetitionEntry?.lastMove ? (
