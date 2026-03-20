@@ -890,6 +890,78 @@ function App() {
       detail: "Draw refund per side when applicable.",
     },
   ];
+  const isCheckersMode = selectedCompetition?.id === "mpp-checkers";
+  const competitionReadiness = {
+    "mpp-checkers": [
+      {
+        label: "MVP now",
+        value: "Live",
+        detail: "This is the one fully integrated competition in the MVP.",
+      },
+      {
+        label: "Payment rail",
+        value: "MPP",
+        detail: "Every entry is paid through the arena flow.",
+      },
+      {
+        label: "Proof layer",
+        value: "Scoreboard + live match",
+        detail: "The arena can show public standings and match state today.",
+      },
+    ],
+    "private-challenges": [
+      {
+        label: "MVP status",
+        value: "Next",
+        detail: "This mode is designed, but not yet live in the current MVP.",
+      },
+      {
+        label: "What ships next",
+        value: "Private rooms",
+        detail: "Direct agent-vs-agent challenge rooms funded by wallet yield.",
+      },
+      {
+        label: "What carries over",
+        value: "Same agent + budget",
+        detail: "Your agent account, strategy, and play budget will work here too.",
+      },
+    ],
+    "builder-competitions": [
+      {
+        label: "MVP status",
+        value: "Open design",
+        detail: "Builder competitions are part of the arena roadmap, not the live MVP.",
+      },
+      {
+        label: "Builder surface",
+        value: "Adapter slot",
+        detail: "New games plug in through the arena instead of shipping their own wallet flow.",
+      },
+      {
+        label: "What carries over",
+        value: "Same agent + budget",
+        detail: "The same agent identity, strategy, and budget system extend to new modes.",
+      },
+    ],
+  };
+  const selectedModeReadiness = competitionReadiness[selectedCompetition?.id] ?? [];
+  const selectedModePositioning = [
+    {
+      label: "Live now",
+      value: "MPP Checkers",
+      detail: "The MVP proves one fully integrated yield-funded competition from end to end.",
+    },
+    {
+      label: "This mode",
+      value: selectedCompetition?.status ?? "--",
+      detail: `The arena already indexes ${selectedCompetition?.title}, but this mode is not launched yet.`,
+    },
+    {
+      label: "Why hold scope",
+      value: "Keep the MVP sharp",
+      detail: "The product stays clearer when one live competition is fully proven before more game modes open.",
+    },
+  ];
 
   return (
     <div className="page-shell">
@@ -1345,107 +1417,140 @@ function App() {
 
           <section className="panel live-panel">
             <div className="panel-header">
-              <div className="panel-label">LIVE FEED</div>
-              <div className="tiny-label">recent matches + match state</div>
-            </div>
-            <div className="live-grid">
-              <div className="matches-list">
-                {recentGames.length ? (
-                  recentGames.map((game) => (
-                    <button
-                      className={`match-row${selectedGameId === game.game_id ? " active" : ""}`}
-                      key={game.game_id}
-                      onClick={() => setSelectedGameId(game.game_id)}
-                      type="button"
-                    >
-                      <div>
-                        <strong>{game.black ?? "open"} vs {game.red ?? "open"}</strong>
-                        <div className="tiny-label">{game.status} · {game.move_count} moves</div>
-                      </div>
-                      <div className="tiny-label">{game.game_id}</div>
-                    </button>
-                  ))
-                ) : (
-                  <div className="entry-note">No recent matches loaded.</div>
-                )}
+              <div className="panel-label">{isCheckersMode ? "LIVE FEED" : "MODE STATUS"}</div>
+              <div className="tiny-label">
+                {isCheckersMode ? "recent matches + match state" : "current MVP coverage for this competition"}
               </div>
-
-              <div className="match-view">
-                {selectedGameState ? (
-                  <>
-                    <div className="match-meta">
-                      <div>
-                        <span className="tiny-label">game</span>
-                        <strong>{selectedGameState.game_id}</strong>
-                      </div>
-                      <div>
-                        <span className="tiny-label">turn</span>
-                        <strong>{selectedGameState.turn ?? "--"}</strong>
-                      </div>
-                      <div>
-                        <span className="tiny-label">winner</span>
-                        <strong>{selectedGameState.winner ?? "--"}</strong>
-                      </div>
-                      <div>
-                        <span className="tiny-label">moves</span>
-                        <strong>{selectedGameState.move_count ?? 0}</strong>
-                      </div>
-                    </div>
-
-                    <div className="board-grid">
-                      {selectedGameState.board?.flat().map((cell, index) => (
-                        <div className={`board-cell cell-${cell}`} key={`${selectedGameState.game_id}-${index}`}>
-                          {cell === "." ? "" : cell}
+            </div>
+            {isCheckersMode ? (
+              <div className="live-grid">
+                <div className="matches-list">
+                  {recentGames.length ? (
+                    recentGames.map((game) => (
+                      <button
+                        className={`match-row${selectedGameId === game.game_id ? " active" : ""}`}
+                        key={game.game_id}
+                        onClick={() => setSelectedGameId(game.game_id)}
+                        type="button"
+                      >
+                        <div>
+                          <strong>{game.black ?? "open"} vs {game.red ?? "open"}</strong>
+                          <div className="tiny-label">{game.status} · {game.move_count} moves</div>
                         </div>
-                      ))}
-                    </div>
-                  </>
-                ) : (
-                  <div className="entry-note">No match state loaded.</div>
-                )}
+                        <div className="tiny-label">{game.game_id}</div>
+                      </button>
+                    ))
+                  ) : (
+                    <div className="entry-note">No recent matches loaded.</div>
+                  )}
+                </div>
+
+                <div className="match-view">
+                  {selectedGameState ? (
+                    <>
+                      <div className="match-meta">
+                        <div>
+                          <span className="tiny-label">game</span>
+                          <strong>{selectedGameState.game_id}</strong>
+                        </div>
+                        <div>
+                          <span className="tiny-label">turn</span>
+                          <strong>{selectedGameState.turn ?? "--"}</strong>
+                        </div>
+                        <div>
+                          <span className="tiny-label">winner</span>
+                          <strong>{selectedGameState.winner ?? "--"}</strong>
+                        </div>
+                        <div>
+                          <span className="tiny-label">moves</span>
+                          <strong>{selectedGameState.move_count ?? 0}</strong>
+                        </div>
+                      </div>
+
+                      <div className="board-grid">
+                        {selectedGameState.board?.flat().map((cell, index) => (
+                          <div className={`board-cell cell-${cell}`} key={`${selectedGameState.game_id}-${index}`}>
+                            {cell === "." ? "" : cell}
+                          </div>
+                        ))}
+                      </div>
+                    </>
+                  ) : (
+                    <div className="entry-note">No match state loaded.</div>
+                  )}
+                </div>
               </div>
-            </div>
+            ) : (
+              <div className="mode-status-grid">
+                {selectedModeReadiness.map((item) => (
+                  <article className="step-card" key={item.label}>
+                    <span className="tiny-label">{item.label}</span>
+                    <strong>{item.value}</strong>
+                    <div className="entry-note">{item.detail}</div>
+                  </article>
+                ))}
+              </div>
+            )}
           </section>
 
           <section className="panel side-panel">
-            <div className="stack-panel">
-              <div className="panel-label">SCOREBOARD</div>
-              {scoreboard.slice(0, 3).map((player, index) => (
-                <button
-                  className={`score-row${selectedContender === player.nickname ? " active" : ""}`}
-                  key={player.nickname}
-                  onClick={() => setSelectedContender(player.nickname)}
-                  type="button"
-                >
-                  <span className="tiny-label">#{index + 1}</span>
-                  <span>{player.nickname}</span>
-                  <span className="tiny-label">{player.wins}W</span>
-                </button>
-              ))}
-            </div>
+            {isCheckersMode ? (
+              <>
+                <div className="stack-panel">
+                  <div className="panel-label">SCOREBOARD</div>
+                  {scoreboard.slice(0, 3).map((player, index) => (
+                    <button
+                      className={`score-row${selectedContender === player.nickname ? " active" : ""}`}
+                      key={player.nickname}
+                      onClick={() => setSelectedContender(player.nickname)}
+                      type="button"
+                    >
+                      <span className="tiny-label">#{index + 1}</span>
+                      <span>{player.nickname}</span>
+                      <span className="tiny-label">{player.wins}W</span>
+                    </button>
+                  ))}
+                </div>
 
-            <div className="stack-panel">
-              <div className="panel-label">CONTENDER</div>
-              {contenderStats ? (
-                <article className="agent-card compact">
-                  <div className="agent-card-head">
-                    <strong>{contenderStats.nickname}</strong>
-                    <span className="tiny-label">{contenderStats.games_played} games</span>
-                  </div>
-                  <div className="agent-stat-line">
-                    <span>{contenderStats.wins} wins</span>
-                    <span>{contenderStats.losses} losses</span>
-                    <span>{contenderStats.draws} draws</span>
-                  </div>
-                  <div className="agent-stat-line">
-                    <span className="tiny-label">win rate</span>
-                    <span>{getWinRate(contenderStats)}</span>
-                  </div>
-                </article>
-              ) : (
-                <div className="entry-note">No contender stats loaded.</div>
-              )}
-            </div>
+                <div className="stack-panel">
+                  <div className="panel-label">CONTENDER</div>
+                  {contenderStats ? (
+                    <article className="agent-card compact">
+                      <div className="agent-card-head">
+                        <strong>{contenderStats.nickname}</strong>
+                        <span className="tiny-label">{contenderStats.games_played} games</span>
+                      </div>
+                      <div className="agent-stat-line">
+                        <span>{contenderStats.wins} wins</span>
+                        <span>{contenderStats.losses} losses</span>
+                        <span>{contenderStats.draws} draws</span>
+                      </div>
+                      <div className="agent-stat-line">
+                        <span className="tiny-label">win rate</span>
+                        <span>{getWinRate(contenderStats)}</span>
+                      </div>
+                    </article>
+                  ) : (
+                    <div className="entry-note">No contender stats loaded.</div>
+                  )}
+                </div>
+              </>
+            ) : (
+              <div className="stack-panel">
+                <div className="panel-label">MVP POSITIONING</div>
+                {selectedModePositioning.map((item) => (
+                  <article className="feed-row" key={item.label}>
+                    <div>
+                      <strong>{item.label}</strong>
+                      <div className="tiny-label">{item.value}</div>
+                    </div>
+                    <div className="feed-meta">
+                      <span className="tiny-label">{item.detail}</span>
+                    </div>
+                  </article>
+                ))}
+              </div>
+            )}
 
             <div className="stack-panel">
               <div className="panel-label">ACTIVITY</div>

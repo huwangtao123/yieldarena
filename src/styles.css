@@ -637,6 +637,13 @@ a {
   gap: 16px;
 }
 
+.mode-status-grid {
+  margin-top: 14px;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+}
+
 .matches-list,
 .match-view,
 .stack-panel {
@@ -741,7 +748,8 @@ a {
 
   .hero-panel,
   .live-grid,
-  .competition-detail-grid {
+  .competition-detail-grid,
+  .mode-status-grid {
     grid-template-columns: 1fr;
   }
 }
@@ -764,6 +772,7 @@ a {
   .quick-start-strip,
   .step-list,
   .competition-tabs,
+  .mode-status-grid,
   .budget-picker,
   .form-grid,
   .competition-stats,
