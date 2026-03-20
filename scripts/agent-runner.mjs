@@ -192,6 +192,28 @@ async function run() {
       ]);
     }
 
+    let agentAccount = state.agentAccounts?.[agent.id];
+    let signer = agentAccount?.signer;
+    if (!signer) {
+      const signerResult = await postJson(options.baseUrl, "/api/arena/provision-signer", {
+        agentId: agent.id,
+      });
+      signer = signerResult.signer;
+      state = signerResult.arenaState;
+      logSection("signer", [
+        `key id: ${signer.keyId}`,
+        `mode: ${signer.executionMode}`,
+        `expiry: ${signer.expiry}`,
+      ]);
+    } else {
+      logSection("signer", [
+        `key id: ${signer.keyId}`,
+        `mode: ${signer.executionMode}`,
+        `expiry: ${signer.expiry}`,
+        "status: existing signer reused",
+      ]);
+    }
+
     const budgetSource = pickBudgetSource(
       state,
       options.budgetSource,

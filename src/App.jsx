@@ -177,6 +177,8 @@ function App() {
   const [entryError, setEntryError] = useState("");
   const [walletActionError, setWalletActionError] = useState("");
   const [walletActionNotice, setWalletActionNotice] = useState("");
+  const [signerError, setSignerError] = useState("");
+  const [signerNotice, setSignerNotice] = useState("");
   const [lastEntry, setLastEntry] = useState(null);
   const [registrationForm, setRegistrationForm] = useState({
     nickname: "DragonBot",
@@ -372,6 +374,8 @@ function App() {
     setRegistrationError("");
     setWalletActionError("");
     setWalletActionNotice("");
+    setSignerError("");
+    setSignerNotice("");
     setIsRegistering(true);
 
     try {
@@ -405,6 +409,8 @@ function App() {
     setRegistrationError("");
     setWalletActionError("");
     setWalletActionNotice("");
+    setSignerError("");
+    setSignerNotice("");
 
     try {
       const response = await fetch("/api/arena/reset", {
@@ -456,6 +462,7 @@ function App() {
   const selectedAgentRegistration = arenaState.registrations?.[arenaState.selectedAgentId];
   const selectedAgentAccount =
     arenaState.agentAccounts?.[arenaState.selectedAgentId] ?? null;
+  const selectedAgentSigner = selectedAgentAccount?.signer ?? null;
   const selectedCompetitionWallet =
     arenaState.competitionWallets?.[
       `${arenaState.selectedAgentId}:${arenaState.selectedCompetitionId}`
@@ -494,12 +501,23 @@ function App() {
     {
       id: "step-3",
       label: "Step 3",
+      title: "Provision signer",
+      detail: !arenaLoaded
+        ? "Syncing signer state"
+        : selectedAgentSigner
+          ? `${selectedAgentSigner.signatureType} · ${selectedAgentSigner.executionMode}`
+          : "Attach an execution signer with limits and competition policy",
+      status: !arenaLoaded ? "syncing" : selectedAgentSigner ? "done" : "required",
+    },
+    {
+      id: "step-4",
+      label: "Step 4",
       title: "Enter the live competition",
       detail: competitionIsLive
         ? `${selectedBudget?.label ?? "Budget"} · ${budgetReady ? "top-up ready" : "insufficient allowance"}`
         : "Select a live competition first",
       status:
-        competitionIsLive && budgetReady && selectedAgentRegistration
+        competitionIsLive && budgetReady && selectedAgentRegistration && selectedAgentSigner
           ? "ready"
           : competitionIsLive
             ? "waiting"
@@ -512,10 +530,16 @@ function App() {
     setEntryError("");
     setWalletActionError("");
     setWalletActionNotice("");
+    setSignerError("");
+    setSignerNotice("");
 
     try {
       if (!selectedAgentRegistration) {
         throw new Error("register this agent for MPP Checkers first");
+      }
+
+      if (!selectedAgentSigner) {
+        throw new Error("provision an agent signer first");
       }
 
       const response = await fetch("/api/arena/enter", {
@@ -553,6 +577,8 @@ function App() {
   async function handleTopUpCompetitionWallet() {
     setWalletActionError("");
     setWalletActionNotice("");
+    setSignerError("");
+    setSignerNotice("");
 
     try {
       if (!selectedAgentRegistration) {
@@ -588,6 +614,8 @@ function App() {
   async function handleSweepCompetitionWallet() {
     setWalletActionError("");
     setWalletActionNotice("");
+    setSignerError("");
+    setSignerNotice("");
 
     try {
       if (!selectedCompetitionWallet?.balance) {
@@ -615,6 +643,41 @@ function App() {
       setWalletActionNotice(`Swept ${data.sweep.amount.toFixed(2)} back into wallet budget.`);
     } catch (error) {
       setWalletActionError(error.message || "sweep failed");
+    }
+  }
+
+  async function handleProvisionSigner() {
+    setSignerError("");
+    setSignerNotice("");
+    setWalletActionError("");
+    setWalletActionNotice("");
+
+    try {
+      if (!selectedAgentAccount) {
+        throw new Error("provision an agent account first");
+      }
+
+      const response = await fetch("/api/arena/provision-signer", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          agentId: arenaState.selectedAgentId,
+        }),
+      });
+
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data?.error ?? `HTTP ${response.status}`);
+      }
+
+      setArenaState(data.arenaState);
+      setArenaLoaded(true);
+      setArenaStatus("live");
+      setSignerNotice(
+        `Provisioned ${data.signer.signatureType} signer with ${data.signer.executionMode} execution mode.`
+      );
+    } catch (error) {
+      setSignerError(error.message || "signer provisioning failed");
     }
   }
 
@@ -784,6 +847,22 @@ function App() {
                   </div>
                 </div>
               ) : null}
+              {selectedAgentSigner ? (
+                <div className="agent-stat-grid">
+                  <div>
+                    <span className="tiny-label">signer key</span>
+                    <strong>{selectedAgentSigner.keyId}</strong>
+                  </div>
+                  <div>
+                    <span className="tiny-label">expiry</span>
+                    <strong>{selectedAgentSigner.expiry?.slice(0, 10) ?? "--"}</strong>
+                  </div>
+                  <div>
+                    <span className="tiny-label">allowed</span>
+                    <strong>{selectedAgentSigner.allowedCompetitions?.join(", ") ?? "--"}</strong>
+                  </div>
+                </div>
+              ) : null}
               {selectedCompetitionWallet ? (
                 <div className="agent-stat-grid">
                   <div>
@@ -879,6 +958,14 @@ function App() {
                 </button>
                 <button
                   className="secondary-button"
+                  onClick={handleProvisionSigner}
+                  type="button"
+                  disabled={!selectedAgentAccount}
+                >
+                  Provision Signer
+                </button>
+                <button
+                  className="secondary-button"
                   onClick={handleTopUpCompetitionWallet}
                   type="button"
                   disabled={!selectedAgentRegistration}
@@ -898,20 +985,23 @@ function App() {
                   onClick={handleEnterCompetition}
                   type="button"
                   disabled={
-                    isEntering || !selectedCompetition?.externalUrl || !selectedAgentRegistration
+                    isEntering || !selectedCompetition?.externalUrl || !selectedAgentRegistration || !selectedAgentSigner
                   }
                 >
                   {isEntering
                     ? "Entering..."
                     : selectedCompetition?.externalUrl
                       ? selectedAgentRegistration
-                        ? `Enter ${selectedCompetition.title}`
+                        ? selectedAgentSigner
+                          ? `Enter ${selectedCompetition.title}`
+                          : "Provision Signer First"
                         : "Register Agent First"
                       : "Competition Not Live Yet"}
                 </button>
               </div>
 
               {registrationError ? <div className="entry-note error">{registrationError}</div> : null}
+              {signerError ? <div className="entry-note error">{signerError}</div> : null}
               {walletActionError ? <div className="entry-note error">{walletActionError}</div> : null}
               {entryError ? <div className="entry-note error">{entryError}</div> : null}
               {selectedAgentAccount ? (
@@ -924,11 +1014,12 @@ function App() {
                   Target model: owner vaults fund the agent account, then the agent account spends into competitions. Today the live MPP join still executes through the owner signer.
                 </div>
               ) : null}
+              {signerNotice ? <div className="entry-note">{signerNotice}</div> : null}
               {walletActionNotice ? <div className="entry-note">{walletActionNotice}</div> : null}
               <div className="entry-note">
                 {latestEntry
                   ? `${latestEntry.agentName} entered via ${latestEntry.budgetSource}${latestEntry.matchId ? ` · match ${latestEntry.matchId}` : ""}${latestEntry.actualPlayerNickname ? ` · attended as ${latestEntry.actualPlayerNickname}` : ""} for $${latestEntry.amount.toFixed(2)}`
-                  : "Flow: pick an agent, provision an agent account, top it up from protocol or wallet allowance, then enter a live mode."}
+                  : "Flow: pick an agent, provision an agent account, provision a signer, top it up from protocol or wallet allowance, then enter a live mode."}
               </div>
             </form>
           </section>
