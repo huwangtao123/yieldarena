@@ -900,6 +900,9 @@ function App() {
     selectedCompetitionProfile?.nickname ?? selectedCompetitionRegistration?.nickname ?? "not activated yet";
   const selectedProfileStrategy =
     selectedCompetitionProfile?.strategy?.trim() || "Default arena behavior";
+  const hasSelectedCompetitionProfile = Boolean(
+    selectedCompetitionProfile || selectedCompetitionRegistration || selectedAgentSigner
+  );
   const isCheckersMode = selectedCompetition?.id === "mpp-checkers";
   const competitionReadiness = {
     "mpp-checkers": [
@@ -1387,7 +1390,9 @@ function App() {
                 </div>
                 <div className="entry-note entry-note-strong">
                   {competitionIsLive
-                    ? "Leave the defaults if you want. Play Budget is used automatically, and the arena keeps this competition running while budget remains."
+                    ? hasSelectedCompetitionProfile
+                      ? "Leave the defaults if you want. Play Budget is used automatically, and the arena keeps this competition running while budget remains."
+                      : "First run will create this competition profile automatically, then start playing with Play Budget."
                     : `${liveCompetition?.title} is the live MVP competition right now. This tab stays visible so you can see what comes next.`}
                 </div>
 
@@ -1402,10 +1407,15 @@ function App() {
                       : runInProgress
                         ? "Run In Progress"
                         : competitionIsLive
-                          ? `Start ${Math.max(1, maxRunnableEntries)}-Match Auto Run`
+                          ? "Start Auto Run"
                           : `Go to ${liveCompetition?.title}`}
                   </button>
                 </div>
+                {competitionIsLive && !runInProgress ? (
+                  <div className="entry-note compact">
+                    {Math.max(1, maxRunnableEntries)} matches are budgeted from the current funding selection.
+                  </div>
+                ) : null}
 
                 <details className="profile-details">
                   <summary>Edit profile options</summary>
