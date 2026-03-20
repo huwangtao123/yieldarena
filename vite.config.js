@@ -11,6 +11,7 @@ import {
   unlinkSync,
   writeFileSync,
 } from "node:fs";
+import { DatabaseSync } from "node:sqlite";
 import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
@@ -18,6 +19,7 @@ import { fileURLToPath } from "node:url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const dataDir = path.join(__dirname, ".data");
+const arenaDbPath = path.join(dataDir, "yield-arena.db");
 const arenaSnapshotPath = path.join(dataDir, "arena-state.json");
 const agentsPath = path.join(dataDir, "agents.json");
 const registrationsPath = path.join(dataDir, "registrations.json");
@@ -40,6 +42,29 @@ const tempoRpcUrl = "https://rpc.mainnet.tempo.xyz";
 const tempoUsdToken = "0x20c000000000000000000000b9537d11c60e8b50";
 const tokenDecimals = 6;
 const realAgentExecutionFloatFloor = 0.1;
+
+mkdirSync(dataDir, { recursive: true });
+
+const arenaDb = new DatabaseSync(arenaDbPath);
+arenaDb.exec(`
+  CREATE TABLE IF NOT EXISTS state_store (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  )
+`);
+
+const selectStateRecordStatement = arenaDb.prepare(
+  "SELECT value FROM state_store WHERE key = ?",
+);
+const upsertStateRecordStatement = arenaDb.prepare(`
+  INSERT INTO state_store (key, value, updated_at)
+  VALUES (?, ?, ?)
+  ON CONFLICT(key) DO UPDATE SET
+    value = excluded.value,
+    updated_at = excluded.updated_at
+`);
+const deleteAllStateRecordsStatement = arenaDb.prepare("DELETE FROM state_store");
 
 function loadTempoWalletAddress() {
   try {
@@ -186,7 +211,34 @@ function createInitialArenaState() {
 
 const arenaState = createInitialArenaState();
 
+function loadDatabaseRecord(key) {
+  try {
+    const row = selectStateRecordStatement.get(key);
+    if (!row?.value) {
+      return null;
+    }
+
+    const parsed = JSON.parse(row.value);
+    return parsed && typeof parsed === "object" ? parsed : parsed ?? null;
+  } catch {
+    return null;
+  }
+}
+
+function persistDatabaseRecord(key, payload) {
+  upsertStateRecordStatement.run(key, JSON.stringify(payload), new Date().toISOString());
+}
+
+function clearDatabaseRecords() {
+  deleteAllStateRecordsStatement.run();
+}
+
 function loadPersistedArenaSnapshot() {
+  const fromDb = loadDatabaseRecord("arena_snapshot");
+  if (fromDb) {
+    return fromDb;
+  }
+
   if (!existsSync(arenaSnapshotPath)) {
     return null;
   }
@@ -201,28 +253,24 @@ function loadPersistedArenaSnapshot() {
 }
 
 function persistArenaSnapshot() {
-  mkdirSync(dataDir, { recursive: true });
-  writeFileSync(
-    arenaSnapshotPath,
-    JSON.stringify(
-      {
-        vaults: arenaState.vaults,
-        selectedAgentId: arenaState.selectedAgentId,
-        selectedBudgetSource: arenaState.selectedBudgetSource,
-        selectedCompetitionId: arenaState.selectedCompetitionId,
-        fundingLedger: arenaState.fundingLedger,
-        entryHistory: arenaState.entryHistory,
-        liveCompetitionEntries: arenaState.liveCompetitionEntries,
-        runPlans: arenaState.runPlans,
-      },
-      null,
-      2,
-    ),
-    "utf8",
-  );
+  persistDatabaseRecord("arena_snapshot", {
+    vaults: arenaState.vaults,
+    selectedAgentId: arenaState.selectedAgentId,
+    selectedBudgetSource: arenaState.selectedBudgetSource,
+    selectedCompetitionId: arenaState.selectedCompetitionId,
+    fundingLedger: arenaState.fundingLedger,
+    entryHistory: arenaState.entryHistory,
+    liveCompetitionEntries: arenaState.liveCompetitionEntries,
+    runPlans: arenaState.runPlans,
+  });
 }
 
 function loadPersistedAgents() {
+  const fromDb = loadDatabaseRecord("agents");
+  if (Array.isArray(fromDb) && fromDb.length) {
+    return fromDb;
+  }
+
   if (!existsSync(agentsPath)) {
     return createDefaultAgents();
   }
@@ -237,11 +285,15 @@ function loadPersistedAgents() {
 }
 
 function persistAgents() {
-  mkdirSync(dataDir, { recursive: true });
-  writeFileSync(agentsPath, JSON.stringify(arenaState.agents, null, 2), "utf8");
+  persistDatabaseRecord("agents", arenaState.agents);
 }
 
 function loadPersistedRegistrations() {
+  const fromDb = loadDatabaseRecord("registrations");
+  if (fromDb && typeof fromDb === "object") {
+    return fromDb;
+  }
+
   if (!existsSync(registrationsPath)) {
     return {};
   }
@@ -256,15 +308,44 @@ function loadPersistedRegistrations() {
 }
 
 function persistRegistrations() {
-  mkdirSync(dataDir, { recursive: true });
-  writeFileSync(
-    registrationsPath,
-    JSON.stringify(arenaState.registrations, null, 2),
-    "utf8",
-  );
+  persistDatabaseRecord("registrations", arenaState.registrations);
 }
 
 function loadPersistedCompetitionWallets() {
+  const fromDb = loadDatabaseRecord("competition_wallets");
+  if (fromDb && typeof fromDb === "object") {
+    return Object.fromEntries(
+      Object.entries(fromDb).map(([key, value]) => {
+        const item = value && typeof value === "object" ? value : {};
+        return [key, {
+          accountType: "tempo_local_account",
+          signerType: "direct_eoa",
+          privateKey: null,
+          status: "ready",
+          balance: 0,
+          budgetBalance: 0,
+          executionFloatBalance: 0,
+          fundedTotals: {
+            protocol: 0,
+            wallet: 0,
+          },
+          spentTotal: 0,
+          actualSpentTotal: 0,
+          sweptTotal: 0,
+          executionFloatFunded: 0,
+          executionFloatRecovered: 0,
+          rewardsRecovered: 0,
+          ...item,
+          fundedTotals: {
+            protocol: 0,
+            wallet: 0,
+            ...(item.fundedTotals ?? {}),
+          },
+        }];
+      }),
+    );
+  }
+
   if (!existsSync(competitionWalletsPath)) {
     return {};
   }
@@ -312,15 +393,15 @@ function loadPersistedCompetitionWallets() {
 }
 
 function persistCompetitionWallets() {
-  mkdirSync(dataDir, { recursive: true });
-  writeFileSync(
-    competitionWalletsPath,
-    JSON.stringify(arenaState.competitionWallets, null, 2),
-    "utf8",
-  );
+  persistDatabaseRecord("competition_wallets", arenaState.competitionWallets);
 }
 
 function loadPersistedAgentSigners() {
+  const fromDb = loadDatabaseRecord("agent_signers");
+  if (fromDb && typeof fromDb === "object") {
+    return fromDb;
+  }
+
   if (!existsSync(agentSignersPath)) {
     return {};
   }
@@ -335,12 +416,7 @@ function loadPersistedAgentSigners() {
 }
 
 function persistAgentSigners() {
-  mkdirSync(dataDir, { recursive: true });
-  writeFileSync(
-    agentSignersPath,
-    JSON.stringify(arenaState.agentSigners, null, 2),
-    "utf8",
-  );
+  persistDatabaseRecord("agent_signers", arenaState.agentSigners);
 }
 
 function roundMoney(value) {
@@ -909,9 +985,14 @@ if (!arenaState.competitions.some((competition) => competition.id === arenaState
 }
 hydrateCompetitionWalletsFromRegistrations();
 syncDerivedArenaState();
+persistAgents();
+persistRegistrations();
+persistCompetitionWallets();
+persistAgentSigners();
 
 function resetArenaState() {
   Object.assign(arenaState, createInitialArenaState());
+  clearDatabaseRecords();
   if (existsSync(arenaSnapshotPath)) {
     unlinkSync(arenaSnapshotPath);
   }
