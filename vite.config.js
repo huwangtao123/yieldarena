@@ -541,6 +541,285 @@ function generateAssociatedWallet() {
   return `0x${randomBytes(20).toString("hex")}`;
 }
 
+async function ensureCheckersRegistration({
+  agentId = arenaState.selectedAgentId,
+  nickname,
+} = {}) {
+  const agent = arenaState.agents.find((item) => item.id === agentId);
+  if (!agent) {
+    throw new Error("agent not found");
+  }
+
+  const existing = arenaState.registrations[agent.id];
+  if (existing) {
+    return {
+      registration: existing,
+      created: false,
+    };
+  }
+
+  const baseNickname = nickname?.trim() || agent.name;
+  let payload = {};
+  let resolvedNickname = baseNickname;
+  let registeredAddress = null;
+
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    const address = generateAssociatedWallet();
+    resolvedNickname = attempt === 0
+      ? baseNickname
+      : `${baseNickname}${String(randomBytes(2).toString("hex")).slice(0, 4)}`;
+
+    const upstream = await fetch("https://mpp-checkers.com/register", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        nickname: resolvedNickname,
+        address,
+      }),
+    });
+
+    payload = await upstream.json().catch(() => ({}));
+    if (upstream.ok) {
+      registeredAddress = payload.player?.address ?? address;
+      break;
+    }
+
+    const errorMessage = String(payload?.error ?? "").toLowerCase();
+    if (errorMessage.includes("nickname already taken") && attempt < 4) {
+      continue;
+    }
+
+    throw new Error(payload?.error ?? "checkers registration failed");
+  }
+
+  if (!registeredAddress) {
+    throw new Error("failed to register a unique checkers nickname");
+  }
+
+  const registration = {
+    competitionId: "mpp-checkers",
+    nickname: payload.player?.nickname ?? resolvedNickname,
+    address: registeredAddress,
+    createdAt: payload.player?.created_at ?? new Date().toISOString(),
+    parentWallet: arenaState.mainLoginWallet.address,
+  };
+
+  arenaState.registrations[agent.id] = registration;
+  arenaState.competitionWallets[
+    getCompetitionWalletKey(agent.id, registration.competitionId)
+  ] = createCompetitionWalletRecord({
+    agentId: agent.id,
+    competitionId: registration.competitionId,
+    address: registration.address,
+    parentWallet: registration.parentWallet,
+  });
+  persistRegistrations();
+  persistCompetitionWallets();
+  syncDerivedArenaState();
+
+  return {
+    registration,
+    created: true,
+  };
+}
+
+function ensureAgentSigner({
+  agentId = arenaState.selectedAgentId,
+} = {}) {
+  const agentAccount = arenaState.agentAccounts[agentId];
+  const registration = arenaState.registrations[agentId];
+
+  if (!agentAccount || !registration) {
+    throw new Error("agent account is not provisioned yet");
+  }
+
+  if (arenaState.agentSigners[agentId]) {
+    syncDerivedArenaState();
+    return {
+      signer: arenaState.agentSigners[agentId],
+      created: false,
+    };
+  }
+
+  const signer = createAgentSignerRecord({
+    agentId,
+    accountAddress: agentAccount.address,
+    executionMode:
+      registration.address === arenaState.mainLoginWallet.address
+        ? "native"
+        : "delegated_main_wallet",
+  });
+
+  arenaState.agentSigners[agentId] = signer;
+  persistAgentSigners();
+  syncDerivedArenaState();
+
+  return {
+    signer,
+    created: true,
+  };
+}
+
+async function enterSelectedCompetition({
+  competitionId = arenaState.selectedCompetitionId,
+} = {}) {
+  const budget = arenaState.budgetSources[arenaState.selectedBudgetSource];
+  const agent = arenaState.agents.find(
+    (item) => item.id === arenaState.selectedAgentId,
+  );
+  const agentSigner = arenaState.agentSigners[arenaState.selectedAgentId];
+  const registration = arenaState.registrations[arenaState.selectedAgentId];
+  const competition = arenaState.competitions.find(
+    (item) => item.id === competitionId,
+  );
+
+  if (!budget || !agent || !competition) {
+    throw new Error("arena state is incomplete");
+  }
+
+  if (!registration) {
+    throw new Error("agent is not registered for this competition");
+  }
+
+  if (!agentSigner || agentSigner.status !== "provisioned") {
+    throw new Error("agent signer is not provisioned");
+  }
+
+  if (
+    agentSigner.allowedCompetitions?.length &&
+    !agentSigner.allowedCompetitions.includes(competitionId)
+  ) {
+    throw new Error("competition is not allowed by signer policy");
+  }
+
+  if (competition.status !== "live" || !competition.externalUrl) {
+    throw new Error("competition is not live");
+  }
+
+  const entryCost = competition.entryPrice;
+  const walletKey = getCompetitionWalletKey(agent.id, competitionId);
+  const competitionWallet = arenaState.competitionWallets[walletKey];
+
+  if (!competitionWallet || competitionWallet.status !== "ready") {
+    throw new Error("competition wallet is not ready");
+  }
+
+  let topUp = null;
+  if (competitionWallet.balance < entryCost) {
+    const topUpAmount = roundMoney(entryCost - competitionWallet.balance);
+    if (budget.available < topUpAmount) {
+      const error = new Error("insufficient budget");
+      error.available = budget.available;
+      error.required = topUpAmount;
+      throw error;
+    }
+
+    const fundingResult = topUpCompetitionWallet({
+      agentId: agent.id,
+      competitionId,
+      sourceKey: budget.key,
+      amount: topUpAmount,
+      label: `Auto top-up for ${competition.title}`,
+    });
+    topUp = fundingResult.ledgerItem;
+  }
+
+  let remoteJoin = null;
+  let remoteState = null;
+  let liveEntry = null;
+
+  if (competitionId === "mpp-checkers") {
+    remoteJoin = await runTempoRequestJson("https://mpp-checkers.com/games", [
+      "-X",
+      "POST",
+    ]);
+    remoteState = await fetchGameState(remoteJoin.game_id);
+    const actualPlayerNickname = remoteJoin.color === "black"
+      ? remoteState.black
+      : remoteState.red;
+
+    liveEntry = {
+      agentId: agent.id,
+      competitionId,
+      gameId: remoteJoin.game_id,
+      color: remoteJoin.color,
+      status: remoteState.status ?? remoteJoin.status,
+      turn: remoteState.turn ?? remoteJoin.turn,
+      winner: remoteState.winner ?? null,
+      opponent:
+        remoteJoin.color === "black" ? remoteState.red ?? null : remoteState.black ?? null,
+      participantMode: agentSigner.executionMode,
+      payerWallet: arenaState.mainLoginWallet.address,
+      payerNickname: actualPlayerNickname ?? null,
+      registeredWallet: registration.address,
+      registeredNickname: registration.nickname,
+      signerKeyId: agentSigner.keyId,
+      joinedAt: new Date().toISOString(),
+      lastSyncedAt: new Date().toISOString(),
+    };
+
+    arenaState.liveCompetitionEntries[walletKey] = liveEntry;
+  }
+
+  agentSigner.lastUsedAt = new Date().toISOString();
+
+  competitionWallet.balance = roundMoney(competitionWallet.balance - entryCost);
+  competitionWallet.spentTotal = roundMoney(
+    competitionWallet.spentTotal + entryCost,
+  );
+  competitionWallet.lastSpendAt = new Date().toISOString();
+
+  const entry = {
+    id: `entry-${Date.now()}`,
+    competitionId,
+    agentId: agent.id,
+    agentName: agent.name,
+    budgetSource: budget.key,
+    walletAddress: competitionWallet.address,
+    payerWallet: arenaState.mainLoginWallet.address,
+    amount: entryCost,
+    status: "entered",
+    externalUrl: competition.externalUrl,
+    matchId: remoteJoin?.game_id ?? null,
+    matchStatus: remoteState?.status ?? remoteJoin?.status ?? null,
+    color: remoteJoin?.color ?? null,
+    participantMode: liveEntry?.participantMode ?? agentSigner.executionMode,
+    actualPlayerNickname: liveEntry?.payerNickname ?? null,
+    signerKeyId: agentSigner.keyId,
+    createdAt: new Date().toISOString(),
+  };
+
+  const ledgerItem = {
+    id: `ledger-${Date.now()}`,
+    type: "competition_entry",
+    label: `Entered ${competitionId}`,
+    source: budget.key,
+    amount: entryCost,
+    agentId: agent.id,
+    agentName: agent.name,
+    competitionId,
+    walletAddress: competitionWallet.address,
+    createdAt: entry.createdAt,
+  };
+
+  arenaState.entryHistory.unshift(entry);
+  addFundingLedgerItem(ledgerItem);
+  syncDerivedArenaState();
+  persistCompetitionWallets();
+  persistAgentSigners();
+
+  return {
+    entry,
+    ledgerItem,
+    topUp,
+    liveEntry,
+    remoteJoin,
+    remoteState,
+  };
+}
+
 function arenaDevApi() {
   return {
     name: "arena-dev-api",
@@ -632,71 +911,48 @@ function arenaDevApi() {
 
         try {
           const body = await readJsonBody(req);
-          const agentId = body.agentId ?? arenaState.selectedAgentId;
-          const agent = arenaState.agents.find((item) => item.id === agentId);
-          if (!agent) {
-            json(res, 404, { error: "agent not found" });
-            return;
-          }
-
-          const existing = arenaState.registrations[agent.id];
-          if (existing) {
-            json(res, 200, {
-              registration: existing,
-              arenaState,
-            });
-            return;
-          }
-
-          const nickname = body.nickname?.trim() || agent.name;
-          const address = generateAssociatedWallet();
-
-          const upstream = await fetch("https://mpp-checkers.com/register", {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify({
-              nickname,
-              address,
-            }),
+          const result = await ensureCheckersRegistration({
+            agentId: body.agentId,
+            nickname: body.nickname,
           });
-
-          const payload = await upstream.json().catch(() => ({}));
-          if (!upstream.ok) {
-            json(res, upstream.status, {
-              error: payload?.error ?? "checkers registration failed",
-            });
-            return;
-          }
-
-          const registration = {
-            competitionId: "mpp-checkers",
-            nickname: payload.player?.nickname ?? nickname,
-            address: payload.player?.address ?? address,
-            createdAt: payload.player?.created_at ?? new Date().toISOString(),
-            parentWallet: arenaState.mainLoginWallet.address,
-          };
-
-          arenaState.registrations[agent.id] = registration;
-          arenaState.competitionWallets[
-            getCompetitionWalletKey(agent.id, registration.competitionId)
-          ] = createCompetitionWalletRecord({
-            agentId: agent.id,
-            competitionId: registration.competitionId,
-            address: registration.address,
-            parentWallet: registration.parentWallet,
-          });
-          persistRegistrations();
-          persistCompetitionWallets();
-          syncDerivedArenaState();
 
           json(res, 200, {
-            registration,
+            registration: result.registration,
+            created: result.created,
             arenaState,
           });
-        } catch {
-          json(res, 400, { error: "invalid registration request" });
+        } catch (error) {
+          json(res, 400, { error: error.message || "invalid registration request" });
+        }
+      });
+
+      server.middlewares.use("/api/arena/activate-agent", async (req, res) => {
+        if (req.method !== "POST") {
+          json(res, 405, { error: "method not allowed" });
+          return;
+        }
+
+        try {
+          const body = await readJsonBody(req);
+          const registration = await ensureCheckersRegistration({
+            agentId: body.agentId,
+            nickname: body.nickname,
+          });
+          const signer = ensureAgentSigner({
+            agentId: body.agentId ?? arenaState.selectedAgentId,
+          });
+
+          json(res, 200, {
+            activation: {
+              registrationCreated: registration.created,
+              signerCreated: signer.created,
+            },
+            registration: registration.registration,
+            signer: signer.signer,
+            arenaState,
+          });
+        } catch (error) {
+          json(res, 400, { error: error.message || "activation failed" });
         }
       });
 
@@ -708,39 +964,13 @@ function arenaDevApi() {
 
         try {
           const body = await readJsonBody(req);
-          const agentId = body.agentId ?? arenaState.selectedAgentId;
-          const agentAccount = arenaState.agentAccounts[agentId];
-          const registration = arenaState.registrations[agentId];
-
-          if (!agentAccount || !registration) {
-            json(res, 409, { error: "agent account is not provisioned yet" });
-            return;
-          }
-
-          if (arenaState.agentSigners[agentId]) {
-            syncDerivedArenaState();
-            json(res, 200, {
-              signer: arenaState.agentSigners[agentId],
-              arenaState,
-            });
-            return;
-          }
-
-          const signer = createAgentSignerRecord({
-            agentId,
-            accountAddress: agentAccount.address,
-            executionMode:
-              registration.address === arenaState.mainLoginWallet.address
-                ? "native"
-                : "delegated_main_wallet",
+          const result = ensureAgentSigner({
+            agentId: body.agentId,
           });
 
-          arenaState.agentSigners[agentId] = signer;
-          persistAgentSigners();
-          syncDerivedArenaState();
-
           json(res, 200, {
-            signer,
+            signer: result.signer,
+            created: result.created,
             arenaState,
           });
         } catch (error) {
@@ -829,172 +1059,62 @@ function arenaDevApi() {
         try {
           const body = await readJsonBody(req);
           const competitionId = body.competitionId ?? arenaState.selectedCompetitionId;
-          const budget = arenaState.budgetSources[arenaState.selectedBudgetSource];
-          const agent = arenaState.agents.find(
-            (item) => item.id === arenaState.selectedAgentId,
-          );
-          const agentSigner = arenaState.agentSigners[arenaState.selectedAgentId];
-          const registration = arenaState.registrations[arenaState.selectedAgentId];
-          const competition = arenaState.competitions.find(
-            (item) => item.id === competitionId,
-          );
-
-          if (!budget || !agent || !competition) {
-            json(res, 400, { error: "arena state is incomplete" });
-            return;
-          }
-
-          if (!registration) {
-            json(res, 409, { error: "agent is not registered for this competition" });
-            return;
-          }
-
-          if (!agentSigner || agentSigner.status !== "provisioned") {
-            json(res, 409, { error: "agent signer is not provisioned" });
-            return;
-          }
-
-          if (
-            agentSigner.allowedCompetitions?.length &&
-            !agentSigner.allowedCompetitions.includes(competitionId)
-          ) {
-            json(res, 409, { error: "competition is not allowed by signer policy" });
-            return;
-          }
-
-          if (competition.status !== "live" || !competition.externalUrl) {
-            json(res, 409, {
-              error: "competition is not live",
-              competitionId: competition.id,
-              status: competition.status,
-            });
-            return;
-          }
-
-          const entryCost = competition.entryPrice;
-          const walletKey = getCompetitionWalletKey(agent.id, competitionId);
-          const competitionWallet = arenaState.competitionWallets[walletKey];
-
-          if (!competitionWallet || competitionWallet.status !== "ready") {
-            json(res, 409, { error: "competition wallet is not ready" });
-            return;
-          }
-
-          let topUp = null;
-          if (competitionWallet.balance < entryCost) {
-            const topUpAmount = roundMoney(entryCost - competitionWallet.balance);
-            if (budget.available < topUpAmount) {
-              json(res, 409, {
-                error: "insufficient budget",
-                available: budget.available,
-                required: topUpAmount,
-              });
-              return;
-            }
-
-            const fundingResult = topUpCompetitionWallet({
-              agentId: agent.id,
-              competitionId,
-              sourceKey: budget.key,
-              amount: topUpAmount,
-              label: `Auto top-up for ${competition.title}`,
-            });
-            topUp = fundingResult.ledgerItem;
-          }
-
-          let remoteJoin = null;
-          let remoteState = null;
-          let liveEntry = null;
-
-          if (competitionId === "mpp-checkers") {
-            remoteJoin = await runTempoRequestJson("https://mpp-checkers.com/games", [
-              "-X",
-              "POST",
-            ]);
-            remoteState = await fetchGameState(remoteJoin.game_id);
-            const actualPlayerNickname = remoteJoin.color === "black"
-              ? remoteState.black
-              : remoteState.red;
-
-            liveEntry = {
-              agentId: agent.id,
-              competitionId,
-              gameId: remoteJoin.game_id,
-              color: remoteJoin.color,
-              status: remoteState.status ?? remoteJoin.status,
-              turn: remoteState.turn ?? remoteJoin.turn,
-              winner: remoteState.winner ?? null,
-              opponent:
-                remoteJoin.color === "black" ? remoteState.red ?? null : remoteState.black ?? null,
-              participantMode: agentSigner.executionMode,
-              payerWallet: arenaState.mainLoginWallet.address,
-              payerNickname: actualPlayerNickname ?? null,
-              registeredWallet: registration.address,
-              registeredNickname: registration.nickname,
-              signerKeyId: agentSigner.keyId,
-              joinedAt: new Date().toISOString(),
-              lastSyncedAt: new Date().toISOString(),
-            };
-
-            arenaState.liveCompetitionEntries[walletKey] = liveEntry;
-          }
-
-          agentSigner.lastUsedAt = new Date().toISOString();
-
-          competitionWallet.balance = roundMoney(competitionWallet.balance - entryCost);
-          competitionWallet.spentTotal = roundMoney(
-            competitionWallet.spentTotal + entryCost,
-          );
-          competitionWallet.lastSpendAt = new Date().toISOString();
-
-          const entry = {
-            id: `entry-${Date.now()}`,
-            competitionId,
-            agentId: agent.id,
-            agentName: agent.name,
-            budgetSource: budget.key,
-            walletAddress: competitionWallet.address,
-            payerWallet: arenaState.mainLoginWallet.address,
-            amount: entryCost,
-            status: "entered",
-            externalUrl: competition.externalUrl,
-            matchId: remoteJoin?.game_id ?? null,
-            matchStatus: remoteState?.status ?? remoteJoin?.status ?? null,
-            color: remoteJoin?.color ?? null,
-            participantMode: liveEntry?.participantMode ?? agentSigner.executionMode,
-            actualPlayerNickname: liveEntry?.payerNickname ?? null,
-            signerKeyId: agentSigner.keyId,
-            createdAt: new Date().toISOString(),
-          };
-
-          const ledgerItem = {
-            id: `ledger-${Date.now()}`,
-            type: "competition_entry",
-            label: `Entered ${competitionId}`,
-            source: budget.key,
-            amount: entryCost,
-            agentId: agent.id,
-            agentName: agent.name,
-            competitionId,
-            walletAddress: competitionWallet.address,
-            createdAt: entry.createdAt,
-          };
-
-          arenaState.entryHistory.unshift(entry);
-          addFundingLedgerItem(ledgerItem);
-          syncDerivedArenaState();
-          persistCompetitionWallets();
-          persistAgentSigners();
+          const result = await enterSelectedCompetition({ competitionId });
 
           json(res, 200, {
-            entry,
-            topUp,
-            remoteJoin,
-            liveEntry,
+            entry: result.entry,
+            topUp: result.topUp,
+            remoteJoin: result.remoteJoin,
+            liveEntry: result.liveEntry,
             arenaState,
           });
         } catch (error) {
-          json(res, 400, { error: error.message || "invalid json body" });
+          json(res, 409, {
+            error: error.message || "entry failed",
+            available: error.available,
+            required: error.required,
+          });
+        }
+      });
+
+      server.middlewares.use("/api/arena/quick-enter", async (req, res) => {
+        if (req.method !== "POST") {
+          json(res, 405, { error: "method not allowed" });
+          return;
+        }
+
+        try {
+          const body = await readJsonBody(req);
+          const registration = await ensureCheckersRegistration({
+            agentId: body.agentId,
+            nickname: body.nickname,
+          });
+          const signer = ensureAgentSigner({
+            agentId: body.agentId ?? arenaState.selectedAgentId,
+          });
+          const result = await enterSelectedCompetition({
+            competitionId: body.competitionId ?? arenaState.selectedCompetitionId,
+          });
+
+          json(res, 200, {
+            activation: {
+              registrationCreated: registration.created,
+              signerCreated: signer.created,
+            },
+            registration: registration.registration,
+            signer: signer.signer,
+            entry: result.entry,
+            topUp: result.topUp,
+            remoteJoin: result.remoteJoin,
+            liveEntry: result.liveEntry,
+            arenaState,
+          });
+        } catch (error) {
+          json(res, 409, {
+            error: error.message || "quick enter failed",
+            available: error.available,
+            required: error.required,
+          });
         }
       });
     },
