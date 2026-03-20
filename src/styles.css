@@ -123,6 +123,11 @@ a {
   gap: 8px;
 }
 
+.sidebar-create-button {
+  margin-top: 12px;
+  width: 100%;
+}
+
 .agent-row,
 .competition-list-item,
 .match-row,

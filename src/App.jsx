@@ -42,30 +42,10 @@ const fallbackArenaState = {
       name: "yieldArenaBot",
       style: "balanced",
       status: "ready",
-      wins: 4,
-      entries: 6,
-      roi: "+18%",
+      wins: 0,
+      entries: 0,
+      roi: "+0%",
       preferredCompetition: "MPP Checkers",
-    },
-    {
-      id: "scout-v2",
-      name: "Scout_V2",
-      style: "defensive",
-      status: "active",
-      wins: 2,
-      entries: 4,
-      roi: "+6%",
-      preferredCompetition: "Private Challenges",
-    },
-    {
-      id: "oracle-prime",
-      name: "Oracle_Prime",
-      style: "aggressive",
-      status: "trial",
-      wins: 1,
-      entries: 2,
-      roi: "-2%",
-      preferredCompetition: "Builder Competitions",
     },
   ],
   competitions: [
@@ -190,6 +170,7 @@ function App() {
   const [isRegistering, setIsRegistering] = useState(false);
   const [registrationError, setRegistrationError] = useState("");
   const [isResetting, setIsResetting] = useState(false);
+  const [isCreatingAgent, setIsCreatingAgent] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -389,6 +370,30 @@ function App() {
       await updateArenaState("/api/arena/select-agent", { agentId });
     } catch {
       setArenaStatus("snapshot");
+    }
+  }
+
+  async function handleCreateAgent() {
+    setIsCreatingAgent(true);
+    try {
+      const response = await fetch("/api/arena/create-agent", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+      });
+
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data?.error ?? `HTTP ${response.status}`);
+      }
+
+      setArenaState(data.arenaState);
+      setArenaLoaded(true);
+      setArenaStatus("live");
+      setWalletActionNotice(`${data.agent.name} is ready in the roster.`);
+    } catch (error) {
+      setWalletActionError(error.message || "agent creation failed");
+    } finally {
+      setIsCreatingAgent(false);
     }
   }
 
@@ -842,7 +847,7 @@ function App() {
       <div className="layout">
         <aside className="sidebar panel">
           <div className="sidebar-section">
-            <div className="panel-label">ACTIVE AGENTS</div>
+            <div className="panel-label">AGENT ROSTER</div>
             <div className="sidebar-agents">
               {arenaState.agents.map((agent) => (
                 <button
@@ -856,6 +861,14 @@ function App() {
                 </button>
               ))}
             </div>
+            <button
+              className="ghost-button sidebar-create-button"
+              onClick={handleCreateAgent}
+              type="button"
+              disabled={isCreatingAgent}
+            >
+              {isCreatingAgent ? "Creating..." : "New Agent"}
+            </button>
           </div>
 
           <div className="brand-block">

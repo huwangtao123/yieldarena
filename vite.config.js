@@ -9,6 +9,7 @@ import { fileURLToPath } from "node:url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const dataDir = path.join(__dirname, ".data");
+const agentsPath = path.join(dataDir, "agents.json");
 const registrationsPath = path.join(dataDir, "registrations.json");
 const competitionWalletsPath = path.join(dataDir, "competition-wallets.json");
 const agentSignersPath = path.join(dataDir, "agent-signers.json");
@@ -16,6 +17,37 @@ const execFileAsync = promisify(execFile);
 const tempoBinPath = process.env.HOME
   ? path.join(process.env.HOME, ".local", "bin", "tempo")
   : "/Users/taowang/.local/bin/tempo";
+
+function slugifyAgentId(value) {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 48);
+}
+
+function createAgentRecord({ id, name, style = "balanced" }) {
+  return {
+    id,
+    name,
+    style,
+    status: "ready",
+    wins: 0,
+    entries: 0,
+    roi: "+0%",
+    preferredCompetition: "MPP Checkers",
+  };
+}
+
+function createDefaultAgents() {
+  return [
+    createAgentRecord({
+      id: "yield-arena-bot",
+      name: "yieldArenaBot",
+    }),
+  ];
+}
 
 function createInitialArenaState() {
   const initialLedger = [
@@ -67,38 +99,7 @@ function createInitialArenaState() {
     selectedAgentId: "yield-arena-bot",
     selectedBudgetSource: "auto",
     selectedCompetitionId: "mpp-checkers",
-    agents: [
-      {
-        id: "yield-arena-bot",
-        name: "yieldArenaBot",
-        style: "balanced",
-        status: "ready",
-        wins: 4,
-        entries: 6,
-        roi: "+18%",
-        preferredCompetition: "MPP Checkers",
-      },
-      {
-        id: "scout-v2",
-        name: "Scout_V2",
-        style: "defensive",
-        status: "active",
-        wins: 2,
-        entries: 4,
-        roi: "+6%",
-        preferredCompetition: "Private Challenges",
-      },
-      {
-        id: "oracle-prime",
-        name: "Oracle_Prime",
-        style: "aggressive",
-        status: "trial",
-        wins: 1,
-        entries: 2,
-        roi: "-2%",
-        preferredCompetition: "Builder Competitions",
-      },
-    ],
+    agents: createDefaultAgents(),
     competitions: [
       {
         id: "mpp-checkers",
@@ -152,6 +153,25 @@ function createInitialArenaState() {
 }
 
 const arenaState = createInitialArenaState();
+
+function loadPersistedAgents() {
+  if (!existsSync(agentsPath)) {
+    return createDefaultAgents();
+  }
+
+  try {
+    const raw = readFileSync(agentsPath, "utf8");
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) && parsed.length ? parsed : createDefaultAgents();
+  } catch {
+    return createDefaultAgents();
+  }
+}
+
+function persistAgents() {
+  mkdirSync(dataDir, { recursive: true });
+  writeFileSync(agentsPath, JSON.stringify(arenaState.agents, null, 2), "utf8");
+}
 
 function loadPersistedRegistrations() {
   if (!existsSync(registrationsPath)) {
@@ -485,11 +505,18 @@ function sweepCompetitionWallet({
 arenaState.registrations = loadPersistedRegistrations();
 arenaState.competitionWallets = loadPersistedCompetitionWallets();
 arenaState.agentSigners = loadPersistedAgentSigners();
+arenaState.agents = loadPersistedAgents();
+if (!arenaState.agents.some((agent) => agent.id === arenaState.selectedAgentId)) {
+  arenaState.selectedAgentId = arenaState.agents[0]?.id ?? "yield-arena-bot";
+}
 hydrateCompetitionWalletsFromRegistrations();
 syncDerivedArenaState();
 
 function resetArenaState() {
   Object.assign(arenaState, createInitialArenaState());
+  if (existsSync(agentsPath)) {
+    unlinkSync(agentsPath);
+  }
   if (existsSync(registrationsPath)) {
     unlinkSync(registrationsPath);
   }
@@ -499,6 +526,36 @@ function resetArenaState() {
   if (existsSync(agentSignersPath)) {
     unlinkSync(agentSignersPath);
   }
+}
+
+function createArenaAgent({ name } = {}) {
+  const baseName = (name?.trim() || "").slice(0, 32);
+  const existingNames = new Set(arenaState.agents.map((agent) => agent.name.toLowerCase()));
+  const existingIds = new Set(arenaState.agents.map((agent) => agent.id));
+
+  let nextName = baseName || `yieldArenaBot${arenaState.agents.length + 1}`;
+  let nextId = slugifyAgentId(nextName) || `agent-${Date.now()}`;
+  let suffix = 2;
+
+  while (existingNames.has(nextName.toLowerCase()) || existingIds.has(nextId)) {
+    const seed = baseName || "yieldArenaBot";
+    nextName = `${seed}${suffix}`;
+    nextId = slugifyAgentId(nextName) || `agent-${Date.now()}-${suffix}`;
+    suffix += 1;
+  }
+
+  const styles = ["balanced", "aggressive", "defensive"];
+  const style = styles[arenaState.agents.length % styles.length];
+  const agent = createAgentRecord({
+    id: nextId,
+    name: nextName,
+    style,
+  });
+
+  arenaState.agents.unshift(agent);
+  arenaState.selectedAgentId = agent.id;
+  persistAgents();
+  return agent;
 }
 
 function json(res, statusCode, payload) {
@@ -1028,6 +1085,24 @@ function arenaDevApi() {
 
           arenaState.selectedAgentId = agent.id;
           json(res, 200, arenaState);
+        } catch {
+          json(res, 400, { error: "invalid json body" });
+        }
+      });
+
+      server.middlewares.use("/api/arena/create-agent", async (req, res) => {
+        if (req.method !== "POST") {
+          json(res, 405, { error: "method not allowed" });
+          return;
+        }
+
+        try {
+          const body = await readJsonBody(req);
+          const agent = createArenaAgent({ name: body.name });
+          json(res, 200, {
+            agent,
+            arenaState,
+          });
         } catch {
           json(res, 400, { error: "invalid json body" });
         }
