@@ -33,13 +33,13 @@ const fallbackArenaState = {
   principal: 100,
   todayYield: 0.08,
   playBudget: 0.08,
-  selectedAgentId: "dragonbot",
+  selectedAgentId: "yield-arena-bot",
   selectedBudgetSource: "protocol",
   selectedCompetitionId: "mpp-checkers",
   agents: [
     {
-      id: "dragonbot",
-      name: "DragonBot",
+      id: "yield-arena-bot",
+      name: "yieldArenaBot",
       style: "balanced",
       status: "ready",
       wins: 4,
@@ -182,7 +182,7 @@ function App() {
   const [signerNotice, setSignerNotice] = useState("");
   const [lastEntry, setLastEntry] = useState(null);
   const [registrationForm, setRegistrationForm] = useState({
-    nickname: "DragonBot",
+    nickname: "yieldArenaBot",
   });
   const [isRegistering, setIsRegistering] = useState(false);
   const [registrationError, setRegistrationError] = useState("");
@@ -427,7 +427,7 @@ function App() {
       setArenaStatus("live");
       setLastEntry(null);
       setRegistrationForm({
-        nickname: data.agents[0]?.name ?? "DragonBot",
+        nickname: data.agents[0]?.name ?? "yieldArenaBot",
       });
     } catch {
       setArenaLoaded(false);

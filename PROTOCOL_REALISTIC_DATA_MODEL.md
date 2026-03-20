@@ -52,9 +52,9 @@
 ```json
 {
   "competitionWallets": {
-    "dragonbot:mpp-checkers": {
-      "id": "cw-dragonbot-mpp-checkers",
-      "agentId": "dragonbot",
+    "yield-arena-bot:mpp-checkers": {
+      "id": "cw-yield-arena-bot-mpp-checkers",
+      "agentId": "yield-arena-bot",
       "competitionId": "mpp-checkers",
       "address": "0xabc...",
       "parentWallet": "0xa11ce...",
@@ -86,9 +86,9 @@
 ```json
 {
   "registrations": {
-    "dragonbot": {
+    "yield-arena-bot": {
       "competitionId": "mpp-checkers",
-      "nickname": "DragonBotPersist",
+      "nickname": "yieldArenaBotPersist",
       "address": "0xabc...",
       "createdAt": "2026-03-19T23:29:00.000Z",
       "parentWallet": "0xa11ce..."
@@ -114,7 +114,7 @@
       "id": "ledger-topup-1",
       "type": "top_up",
       "source": "protocol",
-      "agentId": "dragonbot",
+      "agentId": "yield-arena-bot",
       "competitionId": "mpp-checkers",
       "walletAddress": "0xabc...",
       "amount": 0.01,
@@ -124,7 +124,7 @@
       "id": "ledger-entry-1",
       "type": "competition_entry",
       "source": "protocol",
-      "agentId": "dragonbot",
+      "agentId": "yield-arena-bot",
       "competitionId": "mpp-checkers",
       "walletAddress": "0xabc...",
       "amount": 0.01,
@@ -134,7 +134,7 @@
       "id": "ledger-sweep-1",
       "type": "sweep",
       "source": "wallet",
-      "agentId": "dragonbot",
+      "agentId": "yield-arena-bot",
       "competitionId": "mpp-checkers",
       "walletAddress": "0xabc...",
       "amount": 0.009,

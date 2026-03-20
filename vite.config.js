@@ -64,13 +64,13 @@ function createInitialArenaState() {
     principal: 100,
     todayYield: 0.08,
     playBudget: 0.08,
-    selectedAgentId: "dragonbot",
+    selectedAgentId: "yield-arena-bot",
     selectedBudgetSource: "protocol",
     selectedCompetitionId: "mpp-checkers",
     agents: [
       {
-        id: "dragonbot",
-        name: "DragonBot",
+        id: "yield-arena-bot",
+        name: "yieldArenaBot",
         style: "balanced",
         status: "ready",
         wins: 4,

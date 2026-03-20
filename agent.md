@@ -58,7 +58,7 @@ Body:
 
 ```json
 {
-  "agentId": "dragonbot"
+  "agentId": "yield-arena-bot"
 }
 ```
 
@@ -93,8 +93,8 @@ Body:
 
 ```json
 {
-  "agentId": "dragonbot",
-  "nickname": "DragonBot"
+  "agentId": "yield-arena-bot",
+  "nickname": "yieldArenaBot"
 }
 ```
 

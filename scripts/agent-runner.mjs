@@ -3,7 +3,7 @@
 function parseArgs(argv) {
   const options = {
     baseUrl: "http://127.0.0.1:4173",
-    agentId: "dragonbot",
+    agentId: "yield-arena-bot",
     competitionId: "mpp-checkers",
     budgetSource: "protocol",
     nickname: "",
@@ -48,7 +48,7 @@ Usage:
 
 Options:
   --base-url <url>          Arena base URL (default: http://127.0.0.1:4173)
-  --agent-id <id>           Arena agent id (default: dragonbot)
+  --agent-id <id>           Arena agent id (default: yield-arena-bot)
   --competition-id <id>     Competition id (default: mpp-checkers)
   --budget-source <source>  protocol or wallet (default: protocol)
   --nickname <name>         Checkers nickname override
