@@ -165,6 +165,7 @@ function App() {
   const [registrationError, setRegistrationError] = useState("");
   const [isResetting, setIsResetting] = useState(false);
   const [isCreatingAgent, setIsCreatingAgent] = useState(false);
+  const [isDeletingAgent, setIsDeletingAgent] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -355,6 +356,44 @@ function App() {
       setWalletActionError(error.message || "agent creation failed");
     } finally {
       setIsCreatingAgent(false);
+    }
+  }
+
+  async function handleDeleteAgent() {
+    setIsDeletingAgent(true);
+    setEntryError("");
+    setRegistrationError("");
+    setWalletActionError("");
+    setWalletActionNotice("");
+    setSignerError("");
+    setSignerNotice("");
+
+    try {
+      const response = await fetch("/api/arena/delete-agent", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          agentId: arenaState.selectedAgentId,
+        }),
+      });
+
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data?.error ?? `HTTP ${response.status}`);
+      }
+
+      setArenaState(data.arenaState);
+      setArenaLoaded(true);
+      setArenaStatus("live");
+      setWalletActionNotice(
+        data.sweptAmount > 0
+          ? `${data.deleted.name} deleted. ${data.sweptAmount.toFixed(2)} returned to the main account wallet budget.`
+          : `${data.deleted.name} deleted. No competition balance needed to be returned.`
+      );
+    } catch (error) {
+      setWalletActionError(error.message || "delete agent failed");
+    } finally {
+      setIsDeletingAgent(false);
     }
   }
 
@@ -1285,7 +1324,20 @@ function App() {
               >
                 {isResetting ? "Resetting..." : "Reset Demo"}
               </button>
+              <button
+                className="ghost-button danger-button"
+                onClick={handleDeleteAgent}
+                type="button"
+                disabled={isDeletingAgent || arenaState.agents.length <= 1}
+              >
+                {isDeletingAgent ? "Deleting..." : "Delete Agent"}
+              </button>
             </div>
+            {arenaState.agents.length <= 1 ? (
+              <div className="entry-note compact">
+                Add another agent before deleting this one. The arena always keeps at least one active agent.
+              </div>
+            ) : null}
             {registrationError ? <div className="entry-note error">{registrationError}</div> : null}
             {signerError ? <div className="entry-note error">{signerError}</div> : null}
             {walletActionError ? <div className="entry-note error">{walletActionError}</div> : null}

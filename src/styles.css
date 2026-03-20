@@ -539,6 +539,17 @@ a {
   border-color: var(--line);
 }
 
+.danger-button {
+  color: var(--danger);
+  border-color: rgba(255, 143, 143, 0.24);
+}
+
+.danger-button:hover:not(:disabled) {
+  color: var(--danger);
+  border-color: rgba(255, 143, 143, 0.48);
+  background: rgba(255, 143, 143, 0.08);
+}
+
 .action-button:disabled,
 .secondary-button:disabled,
 .ghost-button:disabled {

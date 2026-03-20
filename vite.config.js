@@ -564,6 +564,89 @@ function createArenaAgent({ name } = {}) {
   return agent;
 }
 
+function deleteArenaAgent({
+  agentId = arenaState.selectedAgentId,
+} = {}) {
+  const agentIndex = arenaState.agents.findIndex((agent) => agent.id === agentId);
+  if (agentIndex === -1) {
+    throw new Error("agent not found");
+  }
+
+  if (arenaState.agents.length <= 1) {
+    throw new Error("keep at least one agent in the arena");
+  }
+
+  const removedAgent = arenaState.agents[agentIndex];
+  let sweptAmount = 0;
+  let sweptWallets = 0;
+
+  for (const [walletKey, competitionWallet] of Object.entries(arenaState.competitionWallets)) {
+    if (competitionWallet.agentId !== agentId) {
+      continue;
+    }
+
+    if (competitionWallet.balance > 0) {
+      const amount = competitionWallet.balance;
+      const now = new Date().toISOString();
+      competitionWallet.balance = 0;
+      competitionWallet.sweptTotal = roundMoney(competitionWallet.sweptTotal + amount);
+      competitionWallet.lastSweepAt = now;
+      arenaState.vaults.wallet.availableAllowance = roundMoney(
+        arenaState.vaults.wallet.availableAllowance + amount,
+      );
+      sweptAmount = roundMoney(sweptAmount + amount);
+      sweptWallets += 1;
+
+      addFundingLedgerItem({
+        id: `ledger-delete-sweep-${Date.now()}-${walletKey}`,
+        type: "agent_delete_sweep",
+        label: `Deleted ${removedAgent.name} and swept ${competitionWallet.competitionId} wallet`,
+        source: "wallet",
+        amount,
+        agentId,
+        competitionId: competitionWallet.competitionId,
+        walletAddress: competitionWallet.address,
+        createdAt: now,
+      });
+    }
+
+    delete arenaState.competitionWallets[walletKey];
+    delete arenaState.liveCompetitionEntries[walletKey];
+    delete arenaState.runPlans[walletKey];
+  }
+
+  delete arenaState.registrations[agentId];
+  delete arenaState.agentSigners[agentId];
+
+  arenaState.agents.splice(agentIndex, 1);
+
+  if (arenaState.selectedAgentId === agentId) {
+    arenaState.selectedAgentId = arenaState.agents[0]?.id ?? "yield-arena-bot";
+  }
+
+  addFundingLedgerItem({
+    id: `ledger-agent-delete-${Date.now()}`,
+    type: "agent_delete",
+    label: `Deleted ${removedAgent.name}`,
+    source: "wallet",
+    amount: sweptAmount,
+    agentId,
+    createdAt: new Date().toISOString(),
+  });
+
+  syncDerivedArenaState();
+  persistAgents();
+  persistRegistrations();
+  persistCompetitionWallets();
+  persistAgentSigners();
+
+  return {
+    removedAgent,
+    sweptAmount,
+    sweptWallets,
+  };
+}
+
 function json(res, statusCode, payload) {
   res.statusCode = statusCode;
   res.setHeader("Content-Type", "application/json");
@@ -1127,6 +1210,28 @@ function arenaDevApi() {
           });
         } catch {
           json(res, 400, { error: "invalid json body" });
+        }
+      });
+
+      server.middlewares.use("/api/arena/delete-agent", async (req, res) => {
+        if (req.method !== "POST") {
+          json(res, 405, { error: "method not allowed" });
+          return;
+        }
+
+        try {
+          const body = await readJsonBody(req);
+          const result = deleteArenaAgent({
+            agentId: body.agentId ?? arenaState.selectedAgentId,
+          });
+          json(res, 200, {
+            deleted: result.removedAgent,
+            sweptAmount: result.sweptAmount,
+            sweptWallets: result.sweptWallets,
+            arenaState,
+          });
+        } catch (error) {
+          json(res, 409, { error: error.message || "delete agent failed" });
         }
       });
 
