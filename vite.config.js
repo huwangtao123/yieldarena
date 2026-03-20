@@ -1,7 +1,7 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import { randomBytes } from "node:crypto";
-import { execFile } from "node:child_process";
+import { execFile, execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { promisify } from "node:util";
@@ -17,6 +17,22 @@ const execFileAsync = promisify(execFile);
 const tempoBinPath = process.env.HOME
   ? path.join(process.env.HOME, ".local", "bin", "tempo")
   : "/Users/taowang/.local/bin/tempo";
+
+function loadTempoWalletAddress() {
+  try {
+    const output = execFileSync(tempoBinPath, ["wallet", "-t", "whoami"], {
+      encoding: "utf8",
+      timeout: 10000,
+      maxBuffer: 1024 * 1024,
+    });
+    const match = output.match(/wallet:\s*"?(0x[a-fA-F0-9]{40})"?/);
+    return match?.[1] ?? "0xa11ce00000000000000000000000000000000001";
+  } catch {
+    return "0xa11ce00000000000000000000000000000000001";
+  }
+}
+
+const mainTempoWalletAddress = loadTempoWalletAddress();
 
 function slugifyAgentId(value) {
   return value
@@ -72,7 +88,7 @@ function createInitialArenaState() {
   return {
     mainLoginWallet: {
       label: "Main Arena Login",
-      address: "0xa11ce00000000000000000000000000000000001",
+      address: mainTempoWalletAddress,
     },
     vaults: {
       protocol: {
@@ -272,6 +288,62 @@ function createCompetitionWalletRecord({ agentId, competitionId, address, parent
 function normalizeStrategy(value) {
   const strategy = typeof value === "string" ? value.trim() : "";
   return strategy.slice(0, 280);
+}
+
+function pickCheckersMove({ gameState, color, strategy }) {
+  const validMoves = Array.isArray(gameState?.valid_moves) ? gameState.valid_moves : [];
+  if (!validMoves.length) {
+    return null;
+  }
+
+  const normalizedStrategy = normalizeStrategy(strategy).toLowerCase();
+  const prefersAggressive = /aggressive|attack|fast win|capture|压制|进攻|快攻|吃子/.test(
+    normalizedStrategy,
+  );
+  const prefersDefensive = /defensive|safe|draw|defend|稳|保守|防守|和棋/.test(
+    normalizedStrategy,
+  );
+  const prefersCenter = /center|middle|control|中心|控制/.test(normalizedStrategy);
+  const centerSquares = new Set([13, 14, 17, 18]);
+  const promotionRow = color === "red" ? 0 : 7;
+
+  let bestMove = validMoves[0];
+  let bestScore = -Infinity;
+
+  for (const move of validMoves) {
+    let score = 0;
+    const fromRow = move.from_pos?.[0] ?? 0;
+    const toRow = move.to_pos?.[0] ?? 0;
+    const advancement = color === "red" ? fromRow - toRow : toRow - fromRow;
+    const onEdge = move.to_pos?.[1] === 0 || move.to_pos?.[1] === 7;
+
+    if (move.is_jump) score += 40;
+    score += advancement * 2;
+
+    if (toRow === promotionRow) score += 18;
+    if (centerSquares.has(move.to)) score += 6;
+
+    if (prefersAggressive) {
+      if (move.is_jump) score += 20;
+      score += advancement * 2;
+    }
+
+    if (prefersDefensive) {
+      if (!move.is_jump) score += 4;
+      if (onEdge) score += 6;
+    }
+
+    if (prefersCenter && centerSquares.has(move.to)) {
+      score += 12;
+    }
+
+    if (score > bestScore) {
+      bestMove = move;
+      bestScore = score;
+    }
+  }
+
+  return bestMove;
 }
 
 function createAgentSignerRecord({
@@ -666,6 +738,29 @@ async function fetchGameState(gameId) {
   }
 
   return response.json();
+}
+
+async function submitCheckersMove({ gameId, from, to, address }) {
+  const response = await fetch(`https://mpp-checkers.com/games/${gameId}/move`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      from,
+      to,
+      address,
+    }),
+  });
+
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const error = new Error(payload?.error ?? `move failed (${response.status})`);
+    error.payload = payload;
+    throw error;
+  }
+
+  return payload;
 }
 
 function readJsonBody(req) {
@@ -1093,6 +1188,7 @@ async function startCompetitionRun({
 
 async function advanceRunPlans() {
   let advancedCount = 0;
+  let moveCount = 0;
 
   for (const [runPlanKey, runPlan] of Object.entries(arenaState.runPlans)) {
     if (!runPlan || runPlan.status !== "armed" || runPlan.remainingEntries <= 0) {
@@ -1118,6 +1214,49 @@ async function advanceRunPlans() {
 
     const stillOpen = liveEntry.status === "waiting" || liveEntry.status === "active";
     if (stillOpen) {
+      const isOurTurn = liveEntry.status === "active" && remoteState.turn === liveEntry.color;
+      const strategy =
+        arenaState.registrations[runPlan.agentId]?.customStrategy ??
+        runPlan.customStrategy ??
+        "";
+
+      if (isOurTurn) {
+        const nextMove = pickCheckersMove({
+          gameState: remoteState,
+          color: liveEntry.color,
+          strategy,
+        });
+
+        if (nextMove) {
+          try {
+            const movedState = await submitCheckersMove({
+              gameId: liveEntry.gameId,
+              from: nextMove.from,
+              to: nextMove.to,
+              address: liveEntry.payerWallet ?? arenaState.mainLoginWallet.address,
+            });
+
+            liveEntry.status = movedState.status ?? liveEntry.status;
+            liveEntry.turn = movedState.turn ?? liveEntry.turn;
+            liveEntry.winner = movedState.winner ?? liveEntry.winner;
+            liveEntry.opponent =
+              liveEntry.color === "black" ? movedState.red ?? null : movedState.black ?? null;
+            liveEntry.lastSyncedAt = new Date().toISOString();
+            liveEntry.lastMove = {
+              from: nextMove.from,
+              to: nextMove.to,
+              isJump: Boolean(nextMove.is_jump),
+              movedAt: new Date().toISOString(),
+            };
+            delete liveEntry.lastMoveError;
+            moveCount += 1;
+          } catch (error) {
+            liveEntry.lastMoveError = error.message || "move failed";
+            liveEntry.lastSyncedAt = new Date().toISOString();
+          }
+        }
+      }
+
       continue;
     }
 
@@ -1145,6 +1284,7 @@ async function advanceRunPlans() {
 
   return {
     advancedCount,
+    moveCount,
     runPlans: arenaState.runPlans,
   };
 }
@@ -1429,6 +1569,82 @@ function arenaDevApi() {
         }
       });
 
+      server.middlewares.use("/api/arena/resume-match", async (req, res) => {
+        if (req.method !== "POST") {
+          json(res, 405, { error: "method not allowed" });
+          return;
+        }
+
+        try {
+          const body = await readJsonBody(req);
+          const agentId = body.agentId ?? arenaState.selectedAgentId;
+          const competitionId = body.competitionId ?? arenaState.selectedCompetitionId;
+          const gameId = body.gameId;
+          const color = body.color;
+          const registration = arenaState.registrations[agentId];
+          const signer = arenaState.agentSigners[agentId];
+
+          if (!registration) {
+            json(res, 409, { error: "agent is not registered for this competition" });
+            return;
+          }
+
+          if (!signer) {
+            json(res, 409, { error: "agent signer is not provisioned" });
+            return;
+          }
+
+          if (!gameId || (color !== "black" && color !== "red")) {
+            json(res, 400, { error: "gameId and color are required" });
+            return;
+          }
+
+          const remoteState = await fetchGameState(gameId);
+          const walletKey = getCompetitionWalletKey(agentId, competitionId);
+          arenaState.liveCompetitionEntries[walletKey] = {
+            agentId,
+            competitionId,
+            gameId,
+            color,
+            status: remoteState.status ?? "active",
+            turn: remoteState.turn ?? null,
+            winner: remoteState.winner ?? null,
+            opponent: color === "black" ? remoteState.red ?? null : remoteState.black ?? null,
+            participantMode: signer.executionMode,
+            payerWallet: arenaState.mainLoginWallet.address,
+            payerNickname: color === "black" ? remoteState.black ?? null : remoteState.red ?? null,
+            registeredWallet: registration.address,
+            registeredNickname: registration.nickname,
+            signerKeyId: signer.keyId,
+            joinedAt: new Date().toISOString(),
+            lastSyncedAt: new Date().toISOString(),
+          };
+
+          arenaState.runPlans[walletKey] = {
+            id: `run-${agentId}-${competitionId}-resume`,
+            agentId,
+            competitionId,
+            preferredBudgetSource: arenaState.selectedBudgetSource,
+            customStrategy: registration.customStrategy ?? "",
+            targetEntries: 2,
+            completedEntries: 1,
+            remainingEntries: 1,
+            status: "armed",
+            lastAdvancedAt: new Date().toISOString(),
+            lastEntryId: `resume-${gameId}`,
+          };
+
+          syncDerivedArenaState();
+          json(res, 200, {
+            arenaState,
+            liveEntry: arenaState.liveCompetitionEntries[walletKey],
+            runPlan: arenaState.runPlans[walletKey],
+          });
+        } catch (error) {
+          json(res, 409, { error: error.message || "resume match failed" });
+        }
+      });
+
       server.middlewares.use("/api/arena/enter", async (req, res) => {
         if (req.method !== "POST") {
           json(res, 405, { error: "method not allowed" });
@@ -1466,6 +1682,7 @@ function arenaDevApi() {
           const result = await advanceRunPlans();
           json(res, 200, {
             advancedCount: result.advancedCount,
+            moveCount: result.moveCount,
             runPlans: result.runPlans,
             arenaState,
           });
