@@ -65,7 +65,7 @@ function createInitialArenaState() {
     todayYield: 0.08,
     playBudget: 0.08,
     selectedAgentId: "yield-arena-bot",
-    selectedBudgetSource: "protocol",
+    selectedBudgetSource: "auto",
     selectedCompetitionId: "mpp-checkers",
     agents: [
       {
@@ -135,12 +135,14 @@ function createInitialArenaState() {
       },
     ],
     budgetSources: {
+      auto: { key: "auto", label: "Play Budget", available: 0.08 },
       protocol: { key: "protocol", label: "Protocol Budget", available: 0.01 },
       wallet: { key: "wallet", label: "Wallet Budget", available: 0.07 },
     },
     competitionWallets: {},
     agentAccounts: {},
     agentSigners: {},
+    runPlans: {},
     liveCompetitionEntries: {},
     fundingLedger: initialLedger,
     budgetLedger: initialLedger,
@@ -225,6 +227,10 @@ function roundMoney(value) {
 }
 
 function getCompetitionWalletKey(agentId, competitionId) {
+  return `${agentId}:${competitionId}`;
+}
+
+function getRunPlanKey(agentId, competitionId) {
   return `${agentId}:${competitionId}`;
 }
 
@@ -341,6 +347,9 @@ function buildAgentAccounts() {
 function syncDerivedArenaState() {
   arenaState.principal = arenaState.vaults.wallet.principal;
   arenaState.todayYield = arenaState.vaults.wallet.todayYield;
+  arenaState.budgetSources.auto.available = roundMoney(
+    arenaState.vaults.protocol.availableAllowance + arenaState.vaults.wallet.availableAllowance,
+  );
   arenaState.budgetSources.protocol.available = arenaState.vaults.protocol.availableAllowance;
   arenaState.budgetSources.wallet.available = arenaState.vaults.wallet.availableAllowance;
   arenaState.playBudget = roundMoney(
@@ -541,6 +550,52 @@ function generateAssociatedWallet() {
   return `0x${randomBytes(20).toString("hex")}`;
 }
 
+function getBudgetPreferenceOrder(selectedBudgetSource = arenaState.selectedBudgetSource) {
+  if (selectedBudgetSource === "protocol") {
+    return ["protocol"];
+  }
+
+  if (selectedBudgetSource === "wallet") {
+    return ["wallet"];
+  }
+
+  return ["protocol", "wallet"];
+}
+
+function pickFundingSourceForEntry(entryPrice, selectedBudgetSource = arenaState.selectedBudgetSource) {
+  const order = getBudgetPreferenceOrder(selectedBudgetSource);
+  return order.find((sourceKey) => {
+    const source = arenaState.budgetSources[sourceKey];
+    return source && source.available >= entryPrice;
+  }) ?? null;
+}
+
+function getRunnableBudget(selectedBudgetSource = arenaState.selectedBudgetSource) {
+  if (selectedBudgetSource === "protocol") {
+    return arenaState.vaults.protocol.availableAllowance;
+  }
+
+  if (selectedBudgetSource === "wallet") {
+    return arenaState.vaults.wallet.availableAllowance;
+  }
+
+  return roundMoney(
+    arenaState.vaults.protocol.availableAllowance + arenaState.vaults.wallet.availableAllowance,
+  );
+}
+
+function getRunnableEntryCount({
+  competitionId = arenaState.selectedCompetitionId,
+  selectedBudgetSource = arenaState.selectedBudgetSource,
+} = {}) {
+  const competition = arenaState.competitions.find((item) => item.id === competitionId);
+  if (!competition || !competition.entryPrice) {
+    return 0;
+  }
+
+  return Math.floor(getRunnableBudget(selectedBudgetSource) / competition.entryPrice);
+}
+
 async function ensureCheckersRegistration({
   agentId = arenaState.selectedAgentId,
   nickname,
@@ -664,8 +719,8 @@ function ensureAgentSigner({
 
 async function enterSelectedCompetition({
   competitionId = arenaState.selectedCompetitionId,
+  preferredBudgetSource = arenaState.selectedBudgetSource,
 } = {}) {
-  const budget = arenaState.budgetSources[arenaState.selectedBudgetSource];
   const agent = arenaState.agents.find(
     (item) => item.id === arenaState.selectedAgentId,
   );
@@ -675,7 +730,7 @@ async function enterSelectedCompetition({
     (item) => item.id === competitionId,
   );
 
-  if (!budget || !agent || !competition) {
+  if (!agent || !competition) {
     throw new Error("arena state is incomplete");
   }
 
@@ -699,8 +754,16 @@ async function enterSelectedCompetition({
   }
 
   const entryCost = competition.entryPrice;
+  const effectiveBudgetSource = pickFundingSourceForEntry(entryCost, preferredBudgetSource);
   const walletKey = getCompetitionWalletKey(agent.id, competitionId);
   const competitionWallet = arenaState.competitionWallets[walletKey];
+
+  if (!effectiveBudgetSource && competitionWallet?.balance < entryCost) {
+    const error = new Error("insufficient budget");
+    error.available = arenaState.playBudget;
+    error.required = entryCost;
+    throw error;
+  }
 
   if (!competitionWallet || competitionWallet.status !== "ready") {
     throw new Error("competition wallet is not ready");
@@ -709,17 +772,10 @@ async function enterSelectedCompetition({
   let topUp = null;
   if (competitionWallet.balance < entryCost) {
     const topUpAmount = roundMoney(entryCost - competitionWallet.balance);
-    if (budget.available < topUpAmount) {
-      const error = new Error("insufficient budget");
-      error.available = budget.available;
-      error.required = topUpAmount;
-      throw error;
-    }
-
     const fundingResult = topUpCompetitionWallet({
       agentId: agent.id,
       competitionId,
-      sourceKey: budget.key,
+      sourceKey: effectiveBudgetSource,
       amount: topUpAmount,
       label: `Auto top-up for ${competition.title}`,
     });
@@ -776,7 +832,7 @@ async function enterSelectedCompetition({
     competitionId,
     agentId: agent.id,
     agentName: agent.name,
-    budgetSource: budget.key,
+    budgetSource: effectiveBudgetSource ?? preferredBudgetSource,
     walletAddress: competitionWallet.address,
     payerWallet: arenaState.mainLoginWallet.address,
     amount: entryCost,
@@ -795,7 +851,7 @@ async function enterSelectedCompetition({
     id: `ledger-${Date.now()}`,
     type: "competition_entry",
     label: `Entered ${competitionId}`,
-    source: budget.key,
+    source: effectiveBudgetSource ?? preferredBudgetSource,
     amount: entryCost,
     agentId: agent.id,
     agentName: agent.name,
@@ -817,6 +873,124 @@ async function enterSelectedCompetition({
     liveEntry,
     remoteJoin,
     remoteState,
+  };
+}
+
+function buildRunPlan({
+  agentId,
+  competitionId,
+  preferredBudgetSource,
+  targetEntries,
+  completedEntries,
+}) {
+  return {
+    id: `run-${agentId}-${competitionId}`,
+    agentId,
+    competitionId,
+    preferredBudgetSource,
+    targetEntries,
+    completedEntries,
+    remainingEntries: Math.max(0, targetEntries - completedEntries),
+    status: Math.max(0, targetEntries - completedEntries) > 0 ? "armed" : "completed",
+    lastAdvancedAt: new Date().toISOString(),
+  };
+}
+
+async function startCompetitionRun({
+  agentId = arenaState.selectedAgentId,
+  competitionId = arenaState.selectedCompetitionId,
+  preferredBudgetSource = arenaState.selectedBudgetSource,
+} = {}) {
+  const existingRunPlan = arenaState.runPlans[getRunPlanKey(agentId, competitionId)];
+  if (existingRunPlan && existingRunPlan.status === "armed" && existingRunPlan.remainingEntries > 0) {
+    const error = new Error("run already in progress");
+    error.runPlan = existingRunPlan;
+    throw error;
+  }
+
+  const targetEntries = Math.max(
+    1,
+    getRunnableEntryCount({ competitionId, selectedBudgetSource: preferredBudgetSource }),
+  );
+
+  const firstEntry = await enterSelectedCompetition({
+    competitionId,
+    preferredBudgetSource,
+  });
+
+  const runPlan = buildRunPlan({
+    agentId,
+    competitionId,
+    preferredBudgetSource,
+    targetEntries,
+    completedEntries: 1,
+  });
+
+  arenaState.runPlans[getRunPlanKey(agentId, competitionId)] = runPlan;
+  runPlan.lastEntryId = firstEntry.entry.id;
+
+  return {
+    runPlan,
+    latestEntry: firstEntry.entry,
+    topUp: firstEntry.topUp,
+  };
+}
+
+async function advanceRunPlans() {
+  let advancedCount = 0;
+
+  for (const [runPlanKey, runPlan] of Object.entries(arenaState.runPlans)) {
+    if (!runPlan || runPlan.status !== "armed" || runPlan.remainingEntries <= 0) {
+      continue;
+    }
+
+    const liveEntry = arenaState.liveCompetitionEntries[runPlanKey];
+    if (!liveEntry) {
+      continue;
+    }
+
+    if (runPlan.competitionId !== "mpp-checkers") {
+      continue;
+    }
+
+    const remoteState = await fetchGameState(liveEntry.gameId);
+    liveEntry.status = remoteState.status ?? liveEntry.status;
+    liveEntry.turn = remoteState.turn ?? liveEntry.turn;
+    liveEntry.winner = remoteState.winner ?? null;
+    liveEntry.opponent =
+      liveEntry.color === "black" ? remoteState.red ?? null : remoteState.black ?? null;
+    liveEntry.lastSyncedAt = new Date().toISOString();
+
+    const stillOpen = liveEntry.status === "waiting" || liveEntry.status === "active";
+    if (stillOpen) {
+      continue;
+    }
+
+    if (!pickFundingSourceForEntry(
+      arenaState.competitions.find((item) => item.id === runPlan.competitionId)?.entryPrice ?? 0,
+      runPlan.preferredBudgetSource,
+    )) {
+      runPlan.status = "budget_exhausted";
+      runPlan.lastAdvancedAt = new Date().toISOString();
+      continue;
+    }
+
+    const nextEntry = await enterSelectedCompetition({
+      competitionId: runPlan.competitionId,
+      preferredBudgetSource: runPlan.preferredBudgetSource,
+    });
+
+    runPlan.completedEntries += 1;
+    runPlan.remainingEntries = Math.max(0, runPlan.targetEntries - runPlan.completedEntries);
+    runPlan.status = runPlan.remainingEntries > 0 ? "armed" : "completed";
+    runPlan.lastAdvancedAt = new Date().toISOString();
+    runPlan.lastEntryId = nextEntry.entry.id;
+    advancedCount += 1;
+  }
+
+  return {
+    advancedCount,
+    runPlans: arenaState.runPlans,
   };
 }
 
@@ -988,7 +1162,7 @@ function arenaDevApi() {
           const body = await readJsonBody(req);
           const agentId = body.agentId ?? arenaState.selectedAgentId;
           const competitionId = body.competitionId ?? arenaState.selectedCompetitionId;
-          const sourceKey = body.source ?? arenaState.selectedBudgetSource;
+          let sourceKey = body.source ?? arenaState.selectedBudgetSource;
           const competition = arenaState.competitions.find((item) => item.id === competitionId);
           const amount = roundMoney(
             Number(body.amount ?? competition?.entryPrice ?? 0),
@@ -1002,6 +1176,14 @@ function arenaDevApi() {
           if (!competition || amount <= 0) {
             json(res, 400, { error: "invalid top-up request" });
             return;
+          }
+
+          if (sourceKey === "auto") {
+            sourceKey = pickFundingSourceForEntry(amount, "auto");
+            if (!sourceKey) {
+              json(res, 409, { error: "no funded source available for top-up" });
+              return;
+            }
           }
 
           const result = topUpCompetitionWallet({
@@ -1077,6 +1259,24 @@ function arenaDevApi() {
         }
       });
 
+      server.middlewares.use("/api/arena/advance-run", async (req, res) => {
+        if (req.method !== "POST") {
+          json(res, 405, { error: "method not allowed" });
+          return;
+        }
+
+        try {
+          const result = await advanceRunPlans();
+          json(res, 200, {
+            advancedCount: result.advancedCount,
+            runPlans: result.runPlans,
+            arenaState,
+          });
+        } catch (error) {
+          json(res, 409, { error: error.message || "advance run failed" });
+        }
+      });
+
       server.middlewares.use("/api/arena/quick-enter", async (req, res) => {
         if (req.method !== "POST") {
           json(res, 405, { error: "method not allowed" });
@@ -1092,8 +1292,10 @@ function arenaDevApi() {
           const signer = ensureAgentSigner({
             agentId: body.agentId ?? arenaState.selectedAgentId,
           });
-          const result = await enterSelectedCompetition({
+          const run = await startCompetitionRun({
+            agentId: body.agentId ?? arenaState.selectedAgentId,
             competitionId: body.competitionId ?? arenaState.selectedCompetitionId,
+            preferredBudgetSource: body.budgetSource ?? arenaState.selectedBudgetSource,
           });
 
           json(res, 200, {
@@ -1103,10 +1305,8 @@ function arenaDevApi() {
             },
             registration: registration.registration,
             signer: signer.signer,
-            entry: result.entry,
-            topUp: result.topUp,
-            remoteJoin: result.remoteJoin,
-            liveEntry: result.liveEntry,
+            entry: run.latestEntry,
+            run,
             arenaState,
           });
         } catch (error) {
