@@ -33,6 +33,7 @@ function loadTempoWalletAddress() {
 }
 
 const mainTempoWalletAddress = loadTempoWalletAddress();
+const realAgentSignerEnabled = process.env.YIELD_ARENA_ENABLE_REAL_AGENT_SIGNER === "1";
 
 function slugifyAgentId(value) {
   return value
@@ -290,6 +291,67 @@ function normalizeStrategy(value) {
   return strategy.slice(0, 280);
 }
 
+function getRequestedSignerMode() {
+  return "tempo_agent_access_key";
+}
+
+function buildSignerExecutionState({ registrationAddress }) {
+  const requestedMode = getRequestedSignerMode();
+
+  if (registrationAddress === mainTempoWalletAddress) {
+    return {
+      requestedMode,
+      effectiveMode: "native",
+      status: "provisioned",
+      realSignerReady: true,
+      executionNote: "The registered competition address matches the main Tempo wallet.",
+    };
+  }
+
+  if (realAgentSignerEnabled) {
+    return {
+      requestedMode,
+      effectiveMode: requestedMode,
+      status: "provisioned",
+      realSignerReady: true,
+      executionNote: "Per-agent signer execution is enabled for external paid actions.",
+    };
+  }
+
+  return {
+    requestedMode,
+    effectiveMode: "delegated_main_wallet",
+    status: "provisioned_fallback",
+    realSignerReady: false,
+    executionNote:
+      "Per-agent Tempo signer execution is not wired yet, so external paid entry still falls back to the main wallet.",
+  };
+}
+
+function buildArenaBudgetPolicy({
+  agentId,
+  competitionId,
+  preferredBudgetSource = arenaState.selectedBudgetSource,
+  entryPrice = 0,
+}) {
+  const walletKey = getCompetitionWalletKey(agentId, competitionId);
+  const competitionWallet = arenaState.competitionWallets[walletKey];
+  const playableYield = roundMoney(getRunnableBudget(preferredBudgetSource));
+  const competitionFloat = roundMoney(competitionWallet?.balance ?? 0);
+  const spendableNow = roundMoney(playableYield + competitionFloat);
+
+  return {
+    preferredBudgetSource,
+    playableYield,
+    competitionFloat,
+    spendableNow,
+    nextEntryCost: roundMoney(entryPrice),
+    canEnterNow: entryPrice > 0 ? spendableNow >= entryPrice : spendableNow > 0,
+    syncedAt: new Date().toISOString(),
+    enforcement: "arena_yield_allowance",
+  };
+}
+
 function pickCheckersMove({ gameState, color, strategy }) {
   const validMoves = Array.isArray(gameState?.valid_moves) ? gameState.valid_moves : [];
   if (!validMoves.length) {
@@ -349,11 +411,19 @@ function pickCheckersMove({ gameState, color, strategy }) {
 function createAgentSignerRecord({
   agentId,
   accountAddress,
-  executionMode = "delegated_main_wallet",
+  registrationAddress,
+  competitionId = "mpp-checkers",
+  preferredBudgetSource = arenaState.selectedBudgetSource,
 }) {
   const now = Date.now();
   const expiry = new Date(now + 30 * 24 * 60 * 60 * 1000).toISOString();
   const publicKey = `0x${randomBytes(32).toString("hex")}`;
+  const executionState = buildSignerExecutionState({ registrationAddress });
+  const arenaBudgetPolicy = buildArenaBudgetPolicy({
+    agentId,
+    competitionId,
+    preferredBudgetSource,
+  });
 
   return {
     agentId,
@@ -361,12 +431,18 @@ function createAgentSignerRecord({
     keyId: `signer-${agentId}-${now}`,
     signatureType: "P256",
     publicKey,
-    status: "provisioned",
-    executionMode,
+    status: executionState.status,
+    requestedMode: executionState.requestedMode,
+    effectiveMode: executionState.effectiveMode,
+    executionMode: executionState.effectiveMode,
+    realSignerReady: executionState.realSignerReady,
+    executionNote: executionState.executionNote,
     provisionedAt: new Date(now).toISOString(),
     lastUsedAt: null,
     expiry,
     enforceLimits: true,
+    budgetEnforcement: "arena_yield_allowance",
+    arenaBudgetPolicy,
     spendingLimits: [
       {
         token: "USDC",
@@ -411,12 +487,18 @@ function buildAgentAccounts() {
       parentAccount: arenaState.mainLoginWallet.address,
       signer,
       signerStatus: signer?.status ?? (legacyRegistration ? "identity_provisioned" : "pending"),
-      executionMode: signer?.executionMode ??
+      requestedExecutionMode: signer?.requestedMode ?? null,
+      effectiveExecutionMode: signer?.effectiveMode ?? signer?.executionMode ?? null,
+      executionMode: signer?.effectiveMode ?? signer?.executionMode ??
         (legacyRegistration?.address === arenaState.mainLoginWallet.address
           ? "native"
           : legacyRegistration
             ? "delegated_main_wallet"
             : "pending"),
+      realSignerReady: signer?.realSignerReady ?? false,
+      executionNote: signer?.executionNote ?? null,
+      budgetEnforcement: signer?.budgetEnforcement ?? "arena_yield_allowance",
+      arenaBudgetPolicy: signer?.arenaBudgetPolicy ?? null,
       balance: competitionWallet?.balance ?? 0,
       fundedTotals: competitionWallet?.fundedTotals ?? {
         protocol: 0,
@@ -435,6 +517,27 @@ function buildAgentAccounts() {
   arenaState.agentAccounts = nextAgentAccounts;
 }
 
+function syncSignerBudgetPolicy({
+  agentId,
+  competitionId = arenaState.selectedCompetitionId,
+  preferredBudgetSource = arenaState.selectedBudgetSource,
+  entryPrice = 0,
+}) {
+  const signer = arenaState.agentSigners[agentId];
+  if (!signer) {
+    return null;
+  }
+
+  signer.arenaBudgetPolicy = buildArenaBudgetPolicy({
+    agentId,
+    competitionId,
+    preferredBudgetSource,
+    entryPrice,
+  });
+  signer.budgetEnforcement = "arena_yield_allowance";
+  return signer;
+}
+
 function syncDerivedArenaState() {
   arenaState.principal = arenaState.vaults.wallet.principal;
   arenaState.todayYield = arenaState.vaults.wallet.todayYield;
@@ -447,6 +550,17 @@ function syncDerivedArenaState() {
     arenaState.vaults.protocol.availableAllowance + arenaState.vaults.wallet.availableAllowance,
   );
   arenaState.budgetLedger = arenaState.fundingLedger;
+  for (const signer of Object.values(arenaState.agentSigners)) {
+    if (!signer?.agentId) continue;
+    signer.arenaBudgetPolicy = buildArenaBudgetPolicy({
+      agentId: signer.agentId,
+      competitionId: arenaState.selectedCompetitionId,
+      preferredBudgetSource: arenaState.selectedBudgetSource,
+      entryPrice:
+        arenaState.competitions.find((item) => item.id === arenaState.selectedCompetitionId)?.entryPrice ?? 0,
+    });
+    signer.budgetEnforcement = "arena_yield_allowance";
+  }
   buildAgentAccounts();
 }
 
@@ -927,6 +1041,8 @@ async function ensureCheckersRegistration({
 
 function ensureAgentSigner({
   agentId = arenaState.selectedAgentId,
+  competitionId = arenaState.selectedCompetitionId,
+  preferredBudgetSource = arenaState.selectedBudgetSource,
 } = {}) {
   const agentAccount = arenaState.agentAccounts[agentId];
   const registration = arenaState.registrations[agentId];
@@ -936,6 +1052,12 @@ function ensureAgentSigner({
   }
 
   if (arenaState.agentSigners[agentId]) {
+    syncSignerBudgetPolicy({
+      agentId,
+      competitionId,
+      preferredBudgetSource,
+    });
+    persistAgentSigners();
     syncDerivedArenaState();
     return {
       signer: arenaState.agentSigners[agentId],
@@ -946,10 +1068,9 @@ function ensureAgentSigner({
   const signer = createAgentSignerRecord({
     agentId,
     accountAddress: agentAccount.address,
-    executionMode:
-      registration.address === arenaState.mainLoginWallet.address
-        ? "native"
-        : "delegated_main_wallet",
+    registrationAddress: registration.address,
+    competitionId,
+    preferredBudgetSource,
   });
 
   arenaState.agentSigners[agentId] = signer;
@@ -959,6 +1080,31 @@ function ensureAgentSigner({
   return {
     signer,
     created: true,
+  };
+}
+
+function getCompetitionExecutionContext({ agentSigner, registration, competitionWallet }) {
+  if (agentSigner?.effectiveMode === "tempo_agent_access_key") {
+    return {
+      participantMode: "tempo_agent_access_key",
+      payerWallet: competitionWallet?.address ?? registration?.address ?? null,
+      executionNote: "External paid action executed by the agent account signer.",
+    };
+  }
+
+  if (agentSigner?.effectiveMode === "native") {
+    return {
+      participantMode: "native",
+      payerWallet: registration?.address ?? arenaState.mainLoginWallet.address,
+      executionNote: "External paid action executed by the registered native wallet.",
+    };
+  }
+
+  return {
+    participantMode: "delegated_main_wallet",
+    payerWallet: arenaState.mainLoginWallet.address,
+    executionNote:
+      "External paid action still executes through the main wallet while per-agent signer execution is pending.",
   };
 }
 
@@ -983,9 +1129,16 @@ async function enterSelectedCompetition({
     throw new Error("agent is not registered for this competition");
   }
 
-  if (!agentSigner || agentSigner.status !== "provisioned") {
+  if (!agentSigner || !String(agentSigner.status).startsWith("provisioned")) {
     throw new Error("agent signer is not provisioned");
   }
+
+  syncSignerBudgetPolicy({
+    agentId: agent.id,
+    competitionId,
+    preferredBudgetSource,
+    entryPrice: competition.entryPrice ?? 0,
+  });
 
   if (
     agentSigner.allowedCompetitions?.length &&
@@ -1014,6 +1167,12 @@ async function enterSelectedCompetition({
     throw new Error("competition wallet is not ready");
   }
 
+  const executionContext = getCompetitionExecutionContext({
+    agentSigner,
+    registration,
+    competitionWallet,
+  });
+
   let topUp = null;
   if (competitionWallet.balance < entryCost) {
     const topUpAmount = roundMoney(entryCost - competitionWallet.balance);
@@ -1032,6 +1191,10 @@ async function enterSelectedCompetition({
   let liveEntry = null;
 
   if (competitionId === "mpp-checkers") {
+    if (executionContext.participantMode === "tempo_agent_access_key") {
+      throw new Error("real per-agent signer execution path is not implemented yet");
+    }
+
     remoteJoin = await runTempoRequestJson("https://mpp-checkers.com/games", [
       "-X",
       "POST",
@@ -1051,12 +1214,13 @@ async function enterSelectedCompetition({
       winner: remoteState.winner ?? null,
       opponent:
         remoteJoin.color === "black" ? remoteState.red ?? null : remoteState.black ?? null,
-      participantMode: agentSigner.executionMode,
-      payerWallet: arenaState.mainLoginWallet.address,
+      participantMode: executionContext.participantMode,
+      payerWallet: executionContext.payerWallet,
       payerNickname: actualPlayerNickname ?? null,
       registeredWallet: registration.address,
       registeredNickname: registration.nickname,
       signerKeyId: agentSigner.keyId,
+      executionNote: executionContext.executionNote,
       joinedAt: new Date().toISOString(),
       lastSyncedAt: new Date().toISOString(),
     };
@@ -1065,6 +1229,9 @@ async function enterSelectedCompetition({
   }
 
   agentSigner.lastUsedAt = new Date().toISOString();
+  agentSigner.lastExecutionCompetition = competitionId;
+  agentSigner.lastExecutionMode = executionContext.participantMode;
+  agentSigner.lastExecutionNote = executionContext.executionNote;
 
   competitionWallet.balance = roundMoney(competitionWallet.balance - entryCost);
   competitionWallet.spentTotal = roundMoney(
@@ -1079,17 +1246,18 @@ async function enterSelectedCompetition({
     agentName: agent.name,
     budgetSource: effectiveBudgetSource ?? preferredBudgetSource,
     walletAddress: competitionWallet.address,
-    payerWallet: arenaState.mainLoginWallet.address,
+    payerWallet: executionContext.payerWallet,
     amount: entryCost,
     status: "entered",
     externalUrl: competition.externalUrl,
     matchId: remoteJoin?.game_id ?? null,
     matchStatus: remoteState?.status ?? remoteJoin?.status ?? null,
     color: remoteJoin?.color ?? null,
-    participantMode: liveEntry?.participantMode ?? agentSigner.executionMode,
+    participantMode: liveEntry?.participantMode ?? executionContext.participantMode,
     actualPlayerNickname: liveEntry?.payerNickname ?? null,
     customStrategy: registration?.customStrategy ?? "",
     signerKeyId: agentSigner.keyId,
+    executionNote: executionContext.executionNote,
     createdAt: new Date().toISOString(),
   };
 
@@ -1583,6 +1751,8 @@ function arenaDevApi() {
           const color = body.color;
           const registration = arenaState.registrations[agentId];
           const signer = arenaState.agentSigners[agentId];
+          const walletKey = getCompetitionWalletKey(agentId, competitionId);
+          const competitionWallet = arenaState.competitionWallets[walletKey];
 
           if (!registration) {
             json(res, 409, { error: "agent is not registered for this competition" });
@@ -1600,7 +1770,11 @@ function arenaDevApi() {
           }
 
           const remoteState = await fetchGameState(gameId);
-          const walletKey = getCompetitionWalletKey(agentId, competitionId);
+          const executionContext = getCompetitionExecutionContext({
+            agentSigner: signer,
+            registration,
+            competitionWallet,
+          });
           arenaState.liveCompetitionEntries[walletKey] = {
             agentId,
             competitionId,
@@ -1610,12 +1784,13 @@ function arenaDevApi() {
             turn: remoteState.turn ?? null,
             winner: remoteState.winner ?? null,
             opponent: color === "black" ? remoteState.red ?? null : remoteState.black ?? null,
-            participantMode: signer.executionMode,
-            payerWallet: arenaState.mainLoginWallet.address,
+            participantMode: executionContext.participantMode,
+            payerWallet: executionContext.payerWallet,
             payerNickname: color === "black" ? remoteState.black ?? null : remoteState.red ?? null,
             registeredWallet: registration.address,
             registeredNickname: registration.nickname,
             signerKeyId: signer.keyId,
+            executionNote: executionContext.executionNote,
             joinedAt: new Date().toISOString(),
             lastSyncedAt: new Date().toISOString(),
           };

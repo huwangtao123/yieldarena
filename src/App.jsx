@@ -1545,8 +1545,24 @@ function App() {
                       <strong>{selectedAgentAccount.signerStatus}</strong>
                     </div>
                     <div>
-                      <span className="tiny-label">execution mode</span>
-                      <strong>{selectedAgentAccount.executionMode}</strong>
+                      <span className="tiny-label">target signer</span>
+                      <strong>{selectedAgentAccount.requestedExecutionMode ?? "pending"}</strong>
+                    </div>
+                    <div>
+                      <span className="tiny-label">effective execution</span>
+                      <strong>{selectedAgentAccount.effectiveExecutionMode ?? selectedAgentAccount.executionMode}</strong>
+                    </div>
+                  </div>
+                ) : null}
+                {selectedAgentAccount ? (
+                  <div className="agent-stat-grid">
+                    <div>
+                      <span className="tiny-label">real signer ready</span>
+                      <strong>{selectedAgentAccount.realSignerReady ? "yes" : "not yet"}</strong>
+                    </div>
+                    <div>
+                      <span className="tiny-label">budget enforcement</span>
+                      <strong>{selectedAgentAccount.budgetEnforcement ?? "arena_yield_allowance"}</strong>
                     </div>
                     <div>
                       <span className="tiny-label">account type</span>
@@ -1567,6 +1583,29 @@ function App() {
                     <div>
                       <span className="tiny-label">allowed</span>
                       <strong>{selectedAgentSigner.allowedCompetitions?.join(", ") ?? "--"}</strong>
+                    </div>
+                  </div>
+                ) : null}
+                {selectedAgentSigner?.executionNote ? (
+                  <div className="entry-note">
+                    <span className="tiny-label">execution note</span>
+                    <br />
+                    {selectedAgentSigner.executionNote}
+                  </div>
+                ) : null}
+                {selectedAgentSigner?.arenaBudgetPolicy ? (
+                  <div className="agent-stat-grid">
+                    <div>
+                      <span className="tiny-label">playable yield</span>
+                      <strong>{selectedAgentSigner.arenaBudgetPolicy.playableYield?.toFixed(2) ?? "0.00"}</strong>
+                    </div>
+                    <div>
+                      <span className="tiny-label">competition float</span>
+                      <strong>{selectedAgentSigner.arenaBudgetPolicy.competitionFloat?.toFixed(2) ?? "0.00"}</strong>
+                    </div>
+                    <div>
+                      <span className="tiny-label">can enter now</span>
+                      <strong>{selectedAgentSigner.arenaBudgetPolicy.canEnterNow ? "yes" : "no"}</strong>
                     </div>
                   </div>
                 ) : null}
