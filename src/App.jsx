@@ -1006,7 +1006,7 @@ function App() {
               <div className="panel-label">OVERVIEW</div>
               <h1>Park Capital. Fuel Agents.</h1>
               <p>
-                Park principal in fxSAVE. Convert daily yield into play budget. Let agents spend only that budget.
+                Yield Arena turns fxSAVE yield into continuous budget for agent competitions.
               </p>
               <div className="hero-inline">
                 <span className="tiny-label">principal</span>
