@@ -216,6 +216,7 @@ function App() {
   const [isResetting, setIsResetting] = useState(false);
   const [isCreatingAgent, setIsCreatingAgent] = useState(false);
   const [isDeletingAgent, setIsDeletingAgent] = useState(false);
+  const [queryView, setQueryView] = useState("live-agents");
 
   const clearFeedback = () => {
     setEntryError("");
@@ -1002,8 +1003,6 @@ function App() {
     ["Agent Auto-Run", runInProgress ? "live" : "arena-managed"],
   ];
 
-  const recentEntries = arenaState.entryHistory.slice(0, 3);
-  const recentLedger = (arenaState.fundingLedger ?? arenaState.budgetLedger).slice(0, 3);
   const latestEntry = lastEntry ?? arenaState.entryHistory[0] ?? null;
   const selectedAgentLatestEntry =
     arenaState.entryHistory.find((entry) => entry.agentId === selectedAgent?.id) ?? null;
@@ -1046,6 +1045,58 @@ function App() {
   const selectedCompetitionFloat = selectedCompetitionWallet?.balance ?? 0;
   const selectedCompetitionNet = Number(
     (selectedCompetitionFloat + selectedCompetitionSwept - selectedCompetitionFunded).toFixed(2)
+  );
+  const liveAgentResults = useMemo(() => {
+    const liveEntries = Object.values(arenaState.liveCompetitionEntries ?? {});
+
+    return arenaState.agents
+      .map((agent) => {
+        const account = arenaState.agentAccounts?.[agent.id] ?? null;
+        const liveEntry =
+          liveEntries.find(
+            (entry) =>
+              entry.agentId === agent.id && (entry.status === "waiting" || entry.status === "active"),
+          ) ?? null;
+        const entries = arenaState.entryHistory.filter((entry) => entry.agentId === agent.id);
+        const lastEntry = entries[0] ?? null;
+        const balance = Number(account?.balance ?? 0);
+        const totalEntries = entries.length;
+
+        if (!liveEntry && balance <= 0 && totalEntries === 0) {
+          return null;
+        }
+
+        return {
+          id: agent.id,
+          name: agent.name,
+          competition: liveEntry?.competitionId ?? lastEntry?.competitionId ?? "arena",
+          status: liveEntry ? liveEntry.status : balance > 0 ? "funded" : "played",
+          balance,
+          totalEntries,
+          lastSeenAt: liveEntry?.joinedAt ?? lastEntry?.createdAt ?? null,
+          isLive: Boolean(liveEntry),
+        };
+      })
+      .filter(Boolean)
+      .sort((left, right) => {
+        if (left.isLive !== right.isLive) return Number(right.isLive) - Number(left.isLive);
+        if (left.balance !== right.balance) return right.balance - left.balance;
+        if (left.totalEntries !== right.totalEntries) return right.totalEntries - left.totalEntries;
+        return left.name.localeCompare(right.name);
+      });
+  }, [arenaState.agentAccounts, arenaState.agents, arenaState.entryHistory, arenaState.liveCompetitionEntries]);
+  const historyResults = useMemo(
+    () =>
+      arenaState.entryHistory.slice(0, 8).map((entry) => ({
+        id: entry.id,
+        name: entry.agentName,
+        competition: entry.competitionId,
+        source: entry.budgetSource,
+        amount: entry.amount,
+        createdAt: entry.createdAt,
+        matchId: entry.matchId,
+      })),
+    [arenaState.entryHistory],
   );
   const hasSelectedCompetitionProfile = Boolean(
     selectedCompetitionProfile || selectedCompetitionRegistration || selectedAgentSigner
@@ -1898,33 +1949,66 @@ function App() {
             )}
 
             <div className="stack-panel">
-              <div className="panel-label">ARENA ACTIVITY</div>
-              {recentEntries.map((entry) => (
-                <article className="feed-row" key={entry.id}>
-                  <div>
-                    <strong>{entry.agentName}</strong>
-                    <div className="tiny-label">
-                      {entry.budgetSource} {"->"} {entry.competitionId}
+              <div className="panel-header">
+                <div className="panel-label">QUERY VIEW</div>
+                <div className="tiny-label">sqlite-backed arena state</div>
+              </div>
+              <div className="query-tab-row">
+                <button
+                  className={`query-tab${queryView === "live-agents" ? " active" : ""}`}
+                  onClick={() => setQueryView("live-agents")}
+                  type="button"
+                >
+                  Live Agents
+                </button>
+                <button
+                  className={`query-tab${queryView === "history" ? " active" : ""}`}
+                  onClick={() => setQueryView("history")}
+                  type="button"
+                >
+                  History
+                </button>
+              </div>
+              {queryView === "live-agents" ? (
+                liveAgentResults.length ? (
+                  liveAgentResults.map((agent) => (
+                    <article className="query-row" key={agent.id}>
+                      <div>
+                        <strong>{agent.name}</strong>
+                        <div className="tiny-label">
+                          {agent.competition} · {agent.status}
+                        </div>
+                      </div>
+                      <div className="query-meta">
+                        <span>{agent.balance > 0 ? `$${agent.balance.toFixed(2)} float` : `${agent.totalEntries} entries`}</span>
+                        <span className="tiny-label">
+                          {agent.lastSeenAt ? formatTime(agent.lastSeenAt) : "saved"}
+                        </span>
+                      </div>
+                    </article>
+                  ))
+                ) : (
+                  <div className="entry-note">No live or funded agents in the arena yet.</div>
+                )
+              ) : historyResults.length ? (
+                historyResults.map((entry) => (
+                  <article className="query-row" key={entry.id}>
+                    <div>
+                      <strong>{entry.name}</strong>
+                      <div className="tiny-label">
+                        {entry.source} {"->"} {entry.competition}
+                        {entry.matchId ? ` · ${entry.matchId}` : ""}
+                      </div>
                     </div>
-                  </div>
-                  <div className="feed-meta">
-                    <span>-${entry.amount.toFixed(2)}</span>
-                    <span className="tiny-label">{formatTime(entry.createdAt)}</span>
-                  </div>
-                </article>
-              ))}
-              {recentLedger.map((item) => (
-                <article className="feed-row" key={item.id}>
-                  <div>
-                    <strong>{item.label}</strong>
-                    <div className="tiny-label">{item.source}</div>
-                  </div>
-                  <div className="feed-meta">
-                    <span>{item.type === "competition_entry" ? "-" : "+"}${item.amount.toFixed(2)}</span>
-                    <span className="tiny-label">{formatTime(item.createdAt)}</span>
-                  </div>
-                </article>
-              ))}
+                    <div className="query-meta">
+                      <span>-${entry.amount.toFixed(2)}</span>
+                      <span className="tiny-label">{formatTime(entry.createdAt)}</span>
+                    </div>
+                  </article>
+                ))
+              ) : (
+                <div className="entry-note">No competition history yet.</div>
+              )}
             </div>
           </section>
         </main>
