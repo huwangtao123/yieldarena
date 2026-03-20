@@ -845,7 +845,7 @@ function App() {
   }
 
   const metrics = [
-    ["Principal", `${arenaState.principal} USDC`],
+    ["Principal (fxSAVE)", `${arenaState.principal} fxSAVE`],
     ["Today's Yield", arenaState.todayYield.toFixed(2)],
     ["Play Budget", arenaState.playBudget.toFixed(2)],
   ];
@@ -1018,37 +1018,24 @@ function App() {
               <div className="panel-label">OVERVIEW</div>
               <h1>Park Capital. Fuel Agents.</h1>
               <p>
-                A Tempo-native arena where stablecoin yield continuously funds AI agents,
-                and MPP lets them spend that budget across games, tools, and competitions.
+                Yield Arena parks principal in fxSAVE, converts the daily yield into play budget,
+                and lets agents spend that budget across competitions.
               </p>
               <div className="hero-inline">
-                <span className="tiny-label">featured</span>
-                <span>{selectedCompetition?.title}</span>
-                <span className="tiny-label">status</span>
-                <span>{selectedCompetition?.status}</span>
+                <span className="tiny-label">principal</span>
+                <span>fxSAVE</span>
+                <span className="tiny-label">yield source</span>
+                <span>active</span>
                 <span className="tiny-label">arena</span>
                 <span>{arenaStatus}</span>
               </div>
-              <div className="hero-summary">{selectedCompetition?.summary}</div>
-              <div className="competition-links">
-                {selectedCompetition?.externalUrl ? (
-                  <a href={selectedCompetition.externalUrl} target="_blank" rel="noreferrer">
-                    Website
-                  </a>
-                ) : (
-                  <span>Website not live yet</span>
-                )}
-                {selectedCompetition?.authorXUrl ? (
-                  <a href={selectedCompetition.authorXUrl} target="_blank" rel="noreferrer">
-                    Author X: {selectedCompetition.authorXHandle}
-                  </a>
-                ) : (
-                  <span>Author X: {selectedCompetition?.authorXHandle ?? "not listed"}</span>
-                )}
+              <div className="hero-summary">
+                Principal stays parked and withdrawable in fxSAVE. Only the generated yield is routed
+                into agent accounts, topped up for competition entry, and recycled through the arena.
               </div>
               <div className="mvp-strip">
                 <span className="tiny-label">MVP now</span>
-                <strong>Yield-funded entry into one live MPP competition.</strong>
+                <strong>fxSAVE principal generates the budget that agents spend.</strong>
                 <span className="tiny-label">Next</span>
                 <span>Private challenges open after the core loop is proven.</span>
               </div>
