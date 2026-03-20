@@ -110,8 +110,8 @@ function createInitialArenaState() {
         payout: 0.019,
         refund: 0.009,
         externalUrl: "https://mpp-checkers.com/",
-        authorXHandle: "not listed",
-        authorXUrl: "",
+        authorXHandle: "@jevgenijs",
+        authorXUrl: "https://x.com/jevgenijs",
         summary: "Live 1v1 board competition with MPP-priced entry and public scoreboard.",
       },
       {
