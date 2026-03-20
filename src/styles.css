@@ -187,8 +187,8 @@ a {
   grid-template-columns: minmax(0, 1.25fr) minmax(360px, 0.75fr);
   grid-template-areas:
     "hero hero"
-    "command side"
     "competitions side"
+    "command side"
     "live side";
   gap: 16px;
   padding: 16px;
@@ -454,6 +454,14 @@ a {
 
 .agent-stat-grid.compact strong {
   font-size: 0.92rem;
+}
+
+.result-positive {
+  color: var(--accent);
+}
+
+.result-negative {
+  color: var(--danger);
 }
 
 .agent-card.compact {
@@ -762,8 +770,8 @@ a {
     grid-template-columns: 1fr;
     grid-template-areas:
       "hero"
-      "command"
       "competitions"
+      "command"
       "live"
       "side";
   }

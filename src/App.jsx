@@ -132,11 +132,6 @@ const fallbackArenaState = {
   entryHistory: [],
 };
 
-function getWinRate(player) {
-  if (!player?.games_played) return "0%";
-  return `${Math.round((player.wins / player.games_played) * 100)}%`;
-}
-
 function formatTime(value) {
   return new Intl.DateTimeFormat("en-US", {
     hour: "numeric",
@@ -149,8 +144,6 @@ function App() {
   const [recentGames, setRecentGames] = useState([]);
   const [selectedGameId, setSelectedGameId] = useState("");
   const [selectedGameState, setSelectedGameState] = useState(null);
-  const [selectedContender, setSelectedContender] = useState("");
-  const [contenderStats, setContenderStats] = useState(null);
   const [scoreStatus, setScoreStatus] = useState("snapshot");
   const [arenaState, setArenaState] = useState(fallbackArenaState);
   const [arenaLoaded, setArenaLoaded] = useState(false);
@@ -277,39 +270,6 @@ function App() {
       window.clearInterval(interval);
     };
   }, [selectedGameId]);
-
-  useEffect(() => {
-    if (!scoreboard.length) return;
-    if (selectedContender && scoreboard.some((player) => player.nickname === selectedContender)) {
-      return;
-    }
-    setSelectedContender(scoreboard[0].nickname);
-  }, [scoreboard, selectedContender]);
-
-  useEffect(() => {
-    if (!selectedContender) return;
-    let active = true;
-
-    async function loadContender() {
-      try {
-        const response = await fetch(`/api/checkers/players/${selectedContender}`);
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        const data = await response.json();
-        if (!active) return;
-        setContenderStats(data.player ?? null);
-      } catch {
-        if (!active) return;
-        setContenderStats(null);
-      }
-    }
-
-    loadContender();
-    const interval = window.setInterval(loadContender, 15000);
-    return () => {
-      active = false;
-      window.clearInterval(interval);
-    };
-  }, [selectedContender]);
 
   useEffect(() => {
     const hasQueuedRun = Object.values(arenaState.runPlans ?? {}).some(
@@ -900,6 +860,15 @@ function App() {
     selectedCompetitionProfile?.nickname ?? selectedCompetitionRegistration?.nickname ?? "not activated yet";
   const selectedProfileStrategy =
     selectedCompetitionProfile?.strategy?.trim() || "Default arena behavior";
+  const selectedCompetitionFunded =
+    (selectedCompetitionWallet?.fundedTotals?.protocol ?? 0) +
+    (selectedCompetitionWallet?.fundedTotals?.wallet ?? 0);
+  const selectedCompetitionSpent = selectedCompetitionWallet?.spentTotal ?? 0;
+  const selectedCompetitionSwept = selectedCompetitionWallet?.sweptTotal ?? 0;
+  const selectedCompetitionFloat = selectedCompetitionWallet?.balance ?? 0;
+  const selectedCompetitionNet = Number(
+    (selectedCompetitionFloat + selectedCompetitionSwept - selectedCompetitionFunded).toFixed(2)
+  );
   const hasSelectedCompetitionProfile = Boolean(
     selectedCompetitionProfile || selectedCompetitionRegistration || selectedAgentSigner
   );
@@ -1090,224 +1059,6 @@ function App() {
             </div>
           </section>
 
-          <section className="panel command-panel">
-            <div className="panel-label">COMMAND</div>
-            <div className="step-list">
-              {flowCards.map((card) => (
-                <article className="step-card" key={card.id}>
-                  <span className="tiny-label">{card.label}</span>
-                  <strong>{card.value}</strong>
-                  <div className="entry-note">{card.detail}</div>
-                </article>
-              ))}
-            </div>
-            <article className="agent-card">
-              <div className="agent-card-head">
-                <strong>{selectedAgent?.name}</strong>
-                <span className="tiny-label">{selectedAgent?.status}</span>
-              </div>
-              <div className="agent-stat-line">
-                <span>{selectedAgent?.style}</span>
-                <span>{selectedAgentEntries || selectedAgent?.entries || 0} entries</span>
-                <span>{selectedAgent?.roi}</span>
-              </div>
-              <div className="agent-stat-grid compact">
-                <div>
-                  <span className="tiny-label">agent account</span>
-                  <strong>{selectedAgentAccount ? "ready" : "pending"}</strong>
-                </div>
-                <div>
-                  <span className="tiny-label">agent float</span>
-                  <strong>{(selectedCompetitionWallet?.balance ?? 0).toFixed(2)}</strong>
-                </div>
-                <div>
-                  <span className="tiny-label">current mode</span>
-                  <strong>{selectedCompetition?.status}</strong>
-                </div>
-              </div>
-              {selectedRunPlan ? (
-                <div className="agent-stat-grid compact">
-                  <div>
-                    <span className="tiny-label">run status</span>
-                    <strong>{selectedRunPlan.status}</strong>
-                  </div>
-                  <div>
-                    <span className="tiny-label">live now</span>
-                    <strong>{selectedRunPlan.completedEntries}</strong>
-                  </div>
-                  <div>
-                    <span className="tiny-label">queued next</span>
-                    <strong>{selectedRunPlan.remainingEntries}</strong>
-                  </div>
-                </div>
-              ) : null}
-              {selectedLiveCompetitionEntry ? (
-                <div className="agent-stat-grid">
-                  <div>
-                    <span className="tiny-label">live match</span>
-                    <strong>{selectedLiveCompetitionEntry.gameId}</strong>
-                  </div>
-                  <div>
-                    <span className="tiny-label">color</span>
-                    <strong>{selectedLiveCompetitionEntry.color}</strong>
-                  </div>
-                  <div>
-                    <span className="tiny-label">attends as</span>
-                    <strong>{selectedLiveCompetitionEntry.payerNickname ?? "pending"}</strong>
-                  </div>
-                </div>
-              ) : null}
-            </article>
-
-            <div className="command-actions">
-              <button
-                className="ghost-button"
-                onClick={handleResetDemo}
-                type="button"
-                disabled={isResetting}
-              >
-                {isResetting ? "Resetting..." : "Reset Demo"}
-              </button>
-            </div>
-              {registrationError ? <div className="entry-note error">{registrationError}</div> : null}
-              {signerError ? <div className="entry-note error">{signerError}</div> : null}
-              {walletActionError ? <div className="entry-note error">{walletActionError}</div> : null}
-              {entryError ? <div className="entry-note error">{entryError}</div> : null}
-              {signerNotice ? <div className="entry-note">{signerNotice}</div> : null}
-              {walletActionNotice ? <div className="entry-note">{walletActionNotice}</div> : null}
-              <div className="entry-note">{commandStatusMessage}</div>
-
-              <details className="advanced-details">
-                <summary>Show protocol details and funding override</summary>
-                <div className="advanced-details-body">
-                  <div className="entry-note">
-                    Target model: owner vaults fund the agent account, then the agent account spends into competitions. Today the live MPP join still executes through the owner signer.
-                  </div>
-                  <div className="field-block">
-                    <span className="tiny-label">funding override</span>
-                    <div className="budget-picker">
-                      {Object.values(arenaState.budgetSources).map((source) => (
-                        <button
-                          className={`budget-chip${source.key === arenaState.selectedBudgetSource ? " active" : ""}`}
-                          key={source.key}
-                          onClick={() => handleBudgetSelect(source.key)}
-                          type="button"
-                        >
-                          <span>{source.label}</span>
-                          <span className="tiny-label">{source.available.toFixed(2)} ready</span>
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                  <div className="agent-stat-line stacked">
-                    <span className="tiny-label">owner account</span>
-                    <span>{arenaState.mainLoginWallet.address}</span>
-                  </div>
-                  {selectedAgentAccount ? (
-                    <div className="agent-stat-line stacked">
-                      <span className="tiny-label">agent account address</span>
-                      <span>{selectedAgentAccount.address}</span>
-                    </div>
-                  ) : null}
-                  {selectedAgentAccount ? (
-                    <div className="agent-stat-grid">
-                      <div>
-                        <span className="tiny-label">signer status</span>
-                        <strong>{selectedAgentAccount.signerStatus}</strong>
-                      </div>
-                      <div>
-                        <span className="tiny-label">execution mode</span>
-                        <strong>{selectedAgentAccount.executionMode}</strong>
-                      </div>
-                      <div>
-                        <span className="tiny-label">account type</span>
-                        <strong>{selectedAgentAccount.accountType}</strong>
-                      </div>
-                    </div>
-                  ) : null}
-                  {selectedAgentSigner ? (
-                    <div className="agent-stat-grid">
-                      <div>
-                        <span className="tiny-label">signer key</span>
-                        <strong>{selectedAgentSigner.keyId}</strong>
-                      </div>
-                      <div>
-                        <span className="tiny-label">expiry</span>
-                        <strong>{selectedAgentSigner.expiry?.slice(0, 10) ?? "--"}</strong>
-                      </div>
-                      <div>
-                        <span className="tiny-label">allowed</span>
-                        <strong>{selectedAgentSigner.allowedCompetitions?.join(", ") ?? "--"}</strong>
-                      </div>
-                    </div>
-                  ) : null}
-                  {selectedCompetitionWallet ? (
-                    <div className="agent-stat-grid">
-                      <div>
-                        <span className="tiny-label">funded by protocol</span>
-                        <strong>{(selectedCompetitionWallet.fundedTotals?.protocol ?? 0).toFixed(2)}</strong>
-                      </div>
-                      <div>
-                        <span className="tiny-label">funded by wallet</span>
-                        <strong>{(selectedCompetitionWallet.fundedTotals?.wallet ?? 0).toFixed(2)}</strong>
-                      </div>
-                      <div>
-                        <span className="tiny-label">spent total</span>
-                        <strong>{(selectedCompetitionWallet.spentTotal ?? 0).toFixed(2)}</strong>
-                      </div>
-                    </div>
-                  ) : null}
-                  <div className="command-actions">
-                    <button
-                      className="secondary-button"
-                      onClick={handleActivateAgent}
-                      type="button"
-                      disabled={isActivating}
-                    >
-                      {isActivating ? "Activating..." : `Prepare ${selectedAgent?.name ?? "Agent"}`}
-                    </button>
-                    <button className="secondary-button" onClick={handleRegisterAgent} type="button" disabled={isRegistering}>
-                      {isRegistering ? "Creating..." : "Manual Register"}
-                    </button>
-                    <button
-                      className="secondary-button"
-                      onClick={handleProvisionSigner}
-                      type="button"
-                      disabled={!selectedAgentAccount}
-                    >
-                      Manual Signer
-                    </button>
-                    <button
-                      className="secondary-button"
-                      onClick={handleTopUpCompetitionWallet}
-                      type="button"
-                      disabled={!selectedCompetitionRegistration}
-                    >
-                      Top Up Wallet
-                    </button>
-                    <button
-                      className="ghost-button"
-                      onClick={handleSweepCompetitionWallet}
-                      type="button"
-                      disabled={!selectedCompetitionWallet?.balance}
-                    >
-                      Sweep Back
-                    </button>
-                    <button
-                      className="ghost-button"
-                      onClick={handleEnterCompetition}
-                      type="button"
-                      disabled={
-                        isEntering || !selectedCompetition?.externalUrl || !selectedCompetitionRegistration || !selectedAgentSigner
-                      }
-                    >
-                      Manual Enter
-                    </button>
-                  </div>
-                </div>
-              </details>
-          </section>
-
           <section className="panel competitions-panel">
             <div className="panel-label">COMPETITIONS</div>
             <div className="competition-tabs">
@@ -1456,6 +1207,224 @@ function App() {
             </div>
           </section>
 
+          <section className="panel command-panel">
+            <div className="panel-label">COMMAND</div>
+            <div className="step-list">
+              {flowCards.map((card) => (
+                <article className="step-card" key={card.id}>
+                  <span className="tiny-label">{card.label}</span>
+                  <strong>{card.value}</strong>
+                  <div className="entry-note">{card.detail}</div>
+                </article>
+              ))}
+            </div>
+            <article className="agent-card">
+              <div className="agent-card-head">
+                <strong>{selectedAgent?.name}</strong>
+                <span className="tiny-label">{selectedAgent?.status}</span>
+              </div>
+              <div className="agent-stat-line">
+                <span>{selectedAgent?.style}</span>
+                <span>{selectedAgentEntries || selectedAgent?.entries || 0} entries</span>
+                <span>{selectedAgent?.roi}</span>
+              </div>
+              <div className="agent-stat-grid compact">
+                <div>
+                  <span className="tiny-label">agent account</span>
+                  <strong>{selectedAgentAccount ? "ready" : "pending"}</strong>
+                </div>
+                <div>
+                  <span className="tiny-label">agent float</span>
+                  <strong>{selectedCompetitionFloat.toFixed(2)}</strong>
+                </div>
+                <div>
+                  <span className="tiny-label">current mode</span>
+                  <strong>{selectedCompetition?.status}</strong>
+                </div>
+              </div>
+              {selectedRunPlan ? (
+                <div className="agent-stat-grid compact">
+                  <div>
+                    <span className="tiny-label">run status</span>
+                    <strong>{selectedRunPlan.status}</strong>
+                  </div>
+                  <div>
+                    <span className="tiny-label">live now</span>
+                    <strong>{selectedRunPlan.completedEntries}</strong>
+                  </div>
+                  <div>
+                    <span className="tiny-label">queued next</span>
+                    <strong>{selectedRunPlan.remainingEntries}</strong>
+                  </div>
+                </div>
+              ) : null}
+              {selectedLiveCompetitionEntry ? (
+                <div className="agent-stat-grid">
+                  <div>
+                    <span className="tiny-label">live match</span>
+                    <strong>{selectedLiveCompetitionEntry.gameId}</strong>
+                  </div>
+                  <div>
+                    <span className="tiny-label">color</span>
+                    <strong>{selectedLiveCompetitionEntry.color}</strong>
+                  </div>
+                  <div>
+                    <span className="tiny-label">attends as</span>
+                    <strong>{selectedLiveCompetitionEntry.payerNickname ?? "pending"}</strong>
+                  </div>
+                </div>
+              ) : null}
+            </article>
+
+            <div className="command-actions">
+              <button
+                className="ghost-button"
+                onClick={handleResetDemo}
+                type="button"
+                disabled={isResetting}
+              >
+                {isResetting ? "Resetting..." : "Reset Demo"}
+              </button>
+            </div>
+            {registrationError ? <div className="entry-note error">{registrationError}</div> : null}
+            {signerError ? <div className="entry-note error">{signerError}</div> : null}
+            {walletActionError ? <div className="entry-note error">{walletActionError}</div> : null}
+            {entryError ? <div className="entry-note error">{entryError}</div> : null}
+            {signerNotice ? <div className="entry-note">{signerNotice}</div> : null}
+            {walletActionNotice ? <div className="entry-note">{walletActionNotice}</div> : null}
+            <div className="entry-note">{commandStatusMessage}</div>
+
+            <details className="advanced-details">
+              <summary>Show protocol details and funding override</summary>
+              <div className="advanced-details-body">
+                <div className="entry-note">
+                  Target model: owner vaults fund the agent account, then the agent account spends into competitions. Today the live MPP join still executes through the owner signer.
+                </div>
+                <div className="field-block">
+                  <span className="tiny-label">funding override</span>
+                  <div className="budget-picker">
+                    {Object.values(arenaState.budgetSources).map((source) => (
+                      <button
+                        className={`budget-chip${source.key === arenaState.selectedBudgetSource ? " active" : ""}`}
+                        key={source.key}
+                        onClick={() => handleBudgetSelect(source.key)}
+                        type="button"
+                      >
+                        <span>{source.label}</span>
+                        <span className="tiny-label">{source.available.toFixed(2)} ready</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div className="agent-stat-line stacked">
+                  <span className="tiny-label">owner account</span>
+                  <span>{arenaState.mainLoginWallet.address}</span>
+                </div>
+                {selectedAgentAccount ? (
+                  <div className="agent-stat-line stacked">
+                    <span className="tiny-label">agent account address</span>
+                    <span>{selectedAgentAccount.address}</span>
+                  </div>
+                ) : null}
+                {selectedAgentAccount ? (
+                  <div className="agent-stat-grid">
+                    <div>
+                      <span className="tiny-label">signer status</span>
+                      <strong>{selectedAgentAccount.signerStatus}</strong>
+                    </div>
+                    <div>
+                      <span className="tiny-label">execution mode</span>
+                      <strong>{selectedAgentAccount.executionMode}</strong>
+                    </div>
+                    <div>
+                      <span className="tiny-label">account type</span>
+                      <strong>{selectedAgentAccount.accountType}</strong>
+                    </div>
+                  </div>
+                ) : null}
+                {selectedAgentSigner ? (
+                  <div className="agent-stat-grid">
+                    <div>
+                      <span className="tiny-label">signer key</span>
+                      <strong>{selectedAgentSigner.keyId}</strong>
+                    </div>
+                    <div>
+                      <span className="tiny-label">expiry</span>
+                      <strong>{selectedAgentSigner.expiry?.slice(0, 10) ?? "--"}</strong>
+                    </div>
+                    <div>
+                      <span className="tiny-label">allowed</span>
+                      <strong>{selectedAgentSigner.allowedCompetitions?.join(", ") ?? "--"}</strong>
+                    </div>
+                  </div>
+                ) : null}
+                {selectedCompetitionWallet ? (
+                  <div className="agent-stat-grid">
+                    <div>
+                      <span className="tiny-label">funded by protocol</span>
+                      <strong>{(selectedCompetitionWallet.fundedTotals?.protocol ?? 0).toFixed(2)}</strong>
+                    </div>
+                    <div>
+                      <span className="tiny-label">funded by wallet</span>
+                      <strong>{(selectedCompetitionWallet.fundedTotals?.wallet ?? 0).toFixed(2)}</strong>
+                    </div>
+                    <div>
+                      <span className="tiny-label">spent total</span>
+                      <strong>{(selectedCompetitionWallet.spentTotal ?? 0).toFixed(2)}</strong>
+                    </div>
+                  </div>
+                ) : null}
+                <div className="command-actions">
+                  <button
+                    className="secondary-button"
+                    onClick={handleActivateAgent}
+                    type="button"
+                    disabled={isActivating}
+                  >
+                    {isActivating ? "Activating..." : `Prepare ${selectedAgent?.name ?? "Agent"}`}
+                  </button>
+                  <button className="secondary-button" onClick={handleRegisterAgent} type="button" disabled={isRegistering}>
+                    {isRegistering ? "Creating..." : "Manual Register"}
+                  </button>
+                  <button
+                    className="secondary-button"
+                    onClick={handleProvisionSigner}
+                    type="button"
+                    disabled={!selectedAgentAccount}
+                  >
+                    Manual Signer
+                  </button>
+                  <button
+                    className="secondary-button"
+                    onClick={handleTopUpCompetitionWallet}
+                    type="button"
+                    disabled={!selectedCompetitionRegistration}
+                  >
+                    Top Up Wallet
+                  </button>
+                  <button
+                    className="ghost-button"
+                    onClick={handleSweepCompetitionWallet}
+                    type="button"
+                    disabled={!selectedCompetitionWallet?.balance}
+                  >
+                    Sweep Back
+                  </button>
+                  <button
+                    className="ghost-button"
+                    onClick={handleEnterCompetition}
+                    type="button"
+                    disabled={
+                      isEntering || !selectedCompetition?.externalUrl || !selectedCompetitionRegistration || !selectedAgentSigner
+                    }
+                  >
+                    Manual Enter
+                  </button>
+                </div>
+              </div>
+            </details>
+          </section>
+
           <section className="panel live-panel">
             <div className="panel-header">
               <div className="panel-label">{isCheckersMode ? "ARENA-WIDE LIVE FEED" : "MODE STATUS"}</div>
@@ -1540,39 +1509,55 @@ function App() {
                 <div className="stack-panel">
                   <div className="panel-label">PUBLIC SCOREBOARD</div>
                   {scoreboard.slice(0, 3).map((player, index) => (
-                    <button
-                      className={`score-row${selectedContender === player.nickname ? " active" : ""}`}
-                      key={player.nickname}
-                      onClick={() => setSelectedContender(player.nickname)}
-                      type="button"
-                    >
+                    <article className="score-row" key={player.nickname}>
                       <span className="tiny-label">#{index + 1}</span>
                       <span>{player.nickname}</span>
                       <span className="tiny-label">{player.wins}W</span>
-                    </button>
+                    </article>
                   ))}
                 </div>
 
                 <div className="stack-panel">
-                  <div className="panel-label">TOP CONTENDER</div>
-                  {contenderStats ? (
+                  <div className="panel-label">COMPETITION P/L</div>
+                  {selectedCompetitionWallet ? (
                     <article className="agent-card compact">
                       <div className="agent-card-head">
-                        <strong>{contenderStats.nickname}</strong>
-                        <span className="tiny-label">{contenderStats.games_played} games</span>
+                        <strong>{selectedAgent?.name}</strong>
+                        <span className="tiny-label">{selectedCompetition?.title}</span>
                       </div>
-                      <div className="agent-stat-line">
-                        <span>{contenderStats.wins} wins</span>
-                        <span>{contenderStats.losses} losses</span>
-                        <span>{contenderStats.draws} draws</span>
+                      <div className="agent-stat-grid compact">
+                        <div>
+                          <span className="tiny-label">funded in</span>
+                          <strong>{selectedCompetitionFunded.toFixed(2)}</strong>
+                        </div>
+                        <div>
+                          <span className="tiny-label">spent</span>
+                          <strong>{selectedCompetitionSpent.toFixed(2)}</strong>
+                        </div>
+                        <div>
+                          <span className="tiny-label">swept back</span>
+                          <strong>{selectedCompetitionSwept.toFixed(2)}</strong>
+                        </div>
                       </div>
-                      <div className="agent-stat-line">
-                        <span className="tiny-label">win rate</span>
-                        <span>{getWinRate(contenderStats)}</span>
+                      <div className="agent-stat-grid compact">
+                        <div>
+                          <span className="tiny-label">live float</span>
+                          <strong>{selectedCompetitionFloat.toFixed(2)}</strong>
+                        </div>
+                        <div>
+                          <span className="tiny-label">net result</span>
+                          <strong className={selectedCompetitionNet >= 0 ? "result-positive" : "result-negative"}>
+                            {selectedCompetitionNet >= 0 ? "+" : ""}
+                            {selectedCompetitionNet.toFixed(2)}
+                          </strong>
+                        </div>
+                      </div>
+                      <div className="entry-note compact">
+                        Net result = live float + swept back - funded into this competition wallet.
                       </div>
                     </article>
                   ) : (
-                    <div className="entry-note">No contender stats loaded.</div>
+                    <div className="entry-note">No competition wallet activity yet.</div>
                   )}
                 </div>
               </>
