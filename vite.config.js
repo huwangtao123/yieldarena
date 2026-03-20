@@ -138,6 +138,7 @@ function createInitialArenaState() {
       wallet: { key: "wallet", label: "Wallet Budget", available: 0.07 },
     },
     competitionWallets: {},
+    agentAccounts: {},
     liveCompetitionEntries: {},
     fundingLedger: initialLedger,
     budgetLedger: initialLedger,
@@ -224,6 +225,58 @@ function createCompetitionWalletRecord({ agentId, competitionId, address, parent
   };
 }
 
+function buildAgentAccounts() {
+  const nextAgentAccounts = {};
+
+  for (const agent of arenaState.agents) {
+    const legacyRegistration = arenaState.registrations[agent.id];
+    const competitionProfiles = {};
+
+    if (legacyRegistration) {
+      competitionProfiles[legacyRegistration.competitionId] = {
+        nickname: legacyRegistration.nickname,
+        registeredAt: legacyRegistration.createdAt,
+      };
+    }
+
+    const competitionWallet = Object.values(arenaState.competitionWallets).find(
+      (item) => item.agentId === agent.id,
+    );
+
+    if (!legacyRegistration && !competitionWallet) {
+      continue;
+    }
+
+    nextAgentAccounts[agent.id] = {
+      agentId: agent.id,
+      accountType: "tempo_agent_account",
+      address: competitionWallet?.address ?? legacyRegistration?.address ?? null,
+      parentAccount: arenaState.mainLoginWallet.address,
+      signerStatus: legacyRegistration ? "identity_provisioned" : "pending",
+      executionMode:
+        legacyRegistration?.address === arenaState.mainLoginWallet.address
+          ? "native"
+          : legacyRegistration
+            ? "delegated_main_wallet"
+            : "pending",
+      balance: competitionWallet?.balance ?? 0,
+      fundedTotals: competitionWallet?.fundedTotals ?? {
+        protocol: 0,
+        wallet: 0,
+      },
+      spentTotal: competitionWallet?.spentTotal ?? 0,
+      sweptTotal: competitionWallet?.sweptTotal ?? 0,
+      lastFundingSource: competitionWallet?.lastFundingSource ?? null,
+      lastFundingAt: competitionWallet?.lastFundingAt ?? null,
+      lastSpendAt: competitionWallet?.lastSpendAt ?? null,
+      lastSweepAt: competitionWallet?.lastSweepAt ?? null,
+      competitionProfiles,
+    };
+  }
+
+  arenaState.agentAccounts = nextAgentAccounts;
+}
+
 function syncDerivedArenaState() {
   arenaState.principal = arenaState.vaults.wallet.principal;
   arenaState.todayYield = arenaState.vaults.wallet.todayYield;
@@ -233,6 +286,7 @@ function syncDerivedArenaState() {
     arenaState.vaults.protocol.availableAllowance + arenaState.vaults.wallet.availableAllowance,
   );
   arenaState.budgetLedger = arenaState.fundingLedger;
+  buildAgentAccounts();
 }
 
 function hydrateCompetitionWalletsFromRegistrations() {
