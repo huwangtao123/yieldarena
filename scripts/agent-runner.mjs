@@ -165,55 +165,6 @@ async function run() {
       throw new Error(`competition ${competition.id} is not live`);
     }
 
-    let registration = state.registrations?.[agent.id];
-    if (!registration) {
-      const nickname = options.nickname || agent.name;
-      const registrationResult = await postJson(
-        options.baseUrl,
-        "/api/arena/register-checkers",
-        {
-          agentId: agent.id,
-          nickname,
-        },
-      );
-      registration = registrationResult.registration;
-      state = registrationResult.arenaState;
-      logSection("registration", [
-        `nickname: ${registration.nickname}`,
-        `agent account: ${registration.address}`,
-        `parent wallet: ${registration.parentWallet}`,
-      ]);
-    } else {
-      logSection("registration", [
-        `nickname: ${registration.nickname}`,
-        `agent account: ${registration.address}`,
-        `parent wallet: ${registration.parentWallet}`,
-        "status: existing registration reused",
-      ]);
-    }
-
-    let agentAccount = state.agentAccounts?.[agent.id];
-    let signer = agentAccount?.signer;
-    if (!signer) {
-      const signerResult = await postJson(options.baseUrl, "/api/arena/provision-signer", {
-        agentId: agent.id,
-      });
-      signer = signerResult.signer;
-      state = signerResult.arenaState;
-      logSection("signer", [
-        `key id: ${signer.keyId}`,
-        `mode: ${signer.executionMode}`,
-        `expiry: ${signer.expiry}`,
-      ]);
-    } else {
-      logSection("signer", [
-        `key id: ${signer.keyId}`,
-        `mode: ${signer.executionMode}`,
-        `expiry: ${signer.expiry}`,
-        "status: existing signer reused",
-      ]);
-    }
-
     const budgetSource = pickBudgetSource(
       state,
       options.budgetSource,
@@ -237,9 +188,19 @@ async function run() {
       `play budget: ${state.playBudget.toFixed(2)}`,
     ]);
 
-    const entryResult = await postJson(options.baseUrl, "/api/arena/enter", {
+    const entryResult = await postJson(options.baseUrl, "/api/arena/quick-enter", {
+      agentId: agent.id,
       competitionId: competition.id,
+      nickname: options.nickname || agent.name,
     });
+
+    logSection("activation", [
+      `registration created: ${entryResult.activation?.registrationCreated ? "yes" : "no"}`,
+      `signer created: ${entryResult.activation?.signerCreated ? "yes" : "no"}`,
+      `nickname: ${entryResult.registration?.nickname ?? state.registrations?.[agent.id]?.nickname ?? "n/a"}`,
+      `agent account: ${entryResult.registration?.address ?? entryResult.entry.walletAddress}`,
+      `signer key: ${entryResult.signer?.keyId ?? "existing"}`,
+    ]);
 
     logSection("entry", [
       `agent: ${entryResult.entry.agentName}`,

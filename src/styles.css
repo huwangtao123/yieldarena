@@ -357,6 +357,25 @@ a {
   gap: 16px;
 }
 
+.quick-start-strip {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.quick-start-card {
+  border: 1px solid var(--line);
+  background: var(--panel-soft);
+  padding: 14px;
+  display: grid;
+  gap: 10px;
+}
+
+.quick-start-card strong {
+  font-size: 1rem;
+  font-weight: 500;
+}
+
 .step-list {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -406,6 +425,10 @@ a {
   padding: 16px;
   display: grid;
   gap: 12px;
+}
+
+.agent-stat-grid.compact strong {
+  font-size: 0.92rem;
 }
 
 .agent-card.compact {
@@ -501,6 +524,31 @@ a {
 
 .competition-list {
   margin-top: 14px;
+  display: grid;
+  gap: 12px;
+}
+
+.advanced-details {
+  border-top: 1px solid var(--line);
+  padding-top: 12px;
+}
+
+.advanced-details summary {
+  cursor: pointer;
+  list-style: none;
+  font-family: var(--font-mono);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.advanced-details summary::-webkit-details-marker {
+  display: none;
+}
+
+.advanced-details-body {
+  margin-top: 12px;
   display: grid;
   gap: 12px;
 }
@@ -653,6 +701,7 @@ a {
   }
 
   .metrics-strip,
+  .quick-start-strip,
   .step-list,
   .budget-picker,
   .form-grid,

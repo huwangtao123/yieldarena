@@ -174,6 +174,7 @@ function App() {
   const [arenaLoaded, setArenaLoaded] = useState(false);
   const [arenaStatus, setArenaStatus] = useState("snapshot");
   const [isEntering, setIsEntering] = useState(false);
+  const [isActivating, setIsActivating] = useState(false);
   const [entryError, setEntryError] = useState("");
   const [walletActionError, setWalletActionError] = useState("");
   const [walletActionNotice, setWalletActionNotice] = useState("");
@@ -370,7 +371,7 @@ function App() {
   }
 
   async function handleRegisterAgent(event) {
-    event.preventDefault();
+    event?.preventDefault?.();
     setRegistrationError("");
     setWalletActionError("");
     setWalletActionNotice("");
@@ -477,53 +478,125 @@ function App() {
   const competitionIsLive = Boolean(
     selectedCompetition?.externalUrl && selectedCompetition?.status === "live"
   );
-  const budgetReady =
-    selectedBudget?.available >= (selectedCompetition?.entryPrice ?? Number.POSITIVE_INFINITY);
-  const commandSteps = [
+  const entryPrice = selectedCompetition?.entryPrice ?? 0;
+  const availableForEntry = (selectedBudget?.available ?? 0) + (selectedCompetitionWallet?.balance ?? 0);
+  const budgetReady = availableForEntry >= entryPrice;
+  const agentReady = Boolean(selectedAgentRegistration && selectedAgentSigner);
+  const readinessCards = [
     {
-      id: "step-1",
-      label: "Step 1",
-      title: "Pick an agent",
-      detail: `${selectedAgent?.name ?? "DragonBot"} · ${selectedAgent?.style ?? "balanced"}`,
-      status: "done",
+      id: "agent",
+      label: "Agent",
+      value: agentReady ? "Ready" : "Needs activation",
+      detail: agentReady
+        ? `${selectedAgent?.name} can enter ${selectedCompetition?.title}`
+        : `Create ${selectedAgent?.name}'s competition profile once`,
     },
     {
-      id: "step-2",
-      label: "Step 2",
-      title: "Provision agent account",
-      detail: !arenaLoaded
-        ? "Syncing current arena state"
-        : selectedAgentAccount
-        ? `${selectedAgentAccount.address.slice(0, 8)}... · ${selectedAgentAccount.signerStatus}`
-        : "Provision a Tempo-native agent account linked to the owner account",
-      status: !arenaLoaded ? "syncing" : selectedAgentAccount ? "done" : "required",
+      id: "budget",
+      label: "Budget",
+      value: `${selectedBudget?.label ?? "Budget"} · ${availableForEntry.toFixed(2)}`,
+      detail: budgetReady
+        ? "Enough allowance is available for the next entry."
+        : "Switch budget source or refresh the demo allowance.",
     },
     {
-      id: "step-3",
-      label: "Step 3",
-      title: "Provision signer",
-      detail: !arenaLoaded
-        ? "Syncing signer state"
-        : selectedAgentSigner
-          ? `${selectedAgentSigner.signatureType} · ${selectedAgentSigner.executionMode}`
-          : "Attach an execution signer with limits and competition policy",
-      status: !arenaLoaded ? "syncing" : selectedAgentSigner ? "done" : "required",
-    },
-    {
-      id: "step-4",
-      label: "Step 4",
-      title: "Enter the live competition",
+      id: "competition",
+      label: "Competition",
+      value: competitionIsLive ? "Live now" : "Not live",
       detail: competitionIsLive
-        ? `${selectedBudget?.label ?? "Budget"} · ${budgetReady ? "top-up ready" : "insufficient allowance"}`
-        : "Select a live competition first",
-      status:
-        competitionIsLive && budgetReady && selectedAgentRegistration && selectedAgentSigner
-          ? "ready"
-          : competitionIsLive
-            ? "waiting"
-            : "locked",
+        ? `${selectedCompetition?.title} is ready for paid entry.`
+        : "Choose a live competition before entering.",
     },
   ];
+
+  async function handleActivateAgent() {
+    setIsActivating(true);
+    setEntryError("");
+    setRegistrationError("");
+    setWalletActionError("");
+    setWalletActionNotice("");
+    setSignerError("");
+    setSignerNotice("");
+
+    try {
+      const response = await fetch("/api/arena/activate-agent", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          agentId: arenaState.selectedAgentId,
+          nickname: registrationForm.nickname.trim(),
+        }),
+      });
+
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data?.error ?? `HTTP ${response.status}`);
+      }
+
+      setArenaState(data.arenaState);
+      setArenaLoaded(true);
+      setArenaStatus("live");
+      const requestedNickname = registrationForm.nickname.trim();
+      const resolvedNickname = data.registration?.nickname ?? requestedNickname;
+      setWalletActionNotice(
+        data.activation?.registrationCreated || data.activation?.signerCreated
+          ? `Activated ${selectedAgent?.name}. Arena created the competition profile and signer behind the scenes${resolvedNickname !== requestedNickname ? ` as ${resolvedNickname}` : ""}.`
+          : `${selectedAgent?.name} is already ready for ${selectedCompetition?.title}.`
+      );
+    } catch (error) {
+      setRegistrationError(error.message || "activation failed");
+    } finally {
+      setIsActivating(false);
+    }
+  }
+
+  async function handleQuickEnter() {
+    setIsEntering(true);
+    setEntryError("");
+    setRegistrationError("");
+    setWalletActionError("");
+    setWalletActionNotice("");
+    setSignerError("");
+    setSignerNotice("");
+
+    try {
+      const response = await fetch("/api/arena/quick-enter", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          agentId: arenaState.selectedAgentId,
+          competitionId: arenaState.selectedCompetitionId,
+          nickname: registrationForm.nickname.trim(),
+        }),
+      });
+
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data?.error ?? `HTTP ${response.status}`);
+      }
+
+      setArenaState(data.arenaState);
+      setArenaLoaded(true);
+      setArenaStatus("live");
+      setLastEntry(data.entry);
+      if (data.entry?.matchId) {
+        setSelectedGameId(data.entry.matchId);
+      }
+      const requestedNickname = registrationForm.nickname.trim();
+      const resolvedNickname = data.registration?.nickname ?? requestedNickname;
+      setWalletActionNotice(
+        data.activation?.registrationCreated || data.activation?.signerCreated
+          ? `Arena activated ${selectedAgent?.name}${resolvedNickname !== requestedNickname ? ` as ${resolvedNickname}` : ""}, funded the agent account, and entered ${selectedCompetition?.title}.`
+          : data.topUp
+            ? `Arena funded the agent account from ${data.topUp.source} and entered ${selectedCompetition?.title}.`
+            : `${selectedAgent?.name} entered ${selectedCompetition?.title}.`
+      );
+    } catch (error) {
+      setEntryError(error.message || "quick enter failed");
+    } finally {
+      setIsEntering(false);
+    }
+  }
 
   async function handleEnterCompetition() {
     setIsEntering(true);
@@ -787,15 +860,12 @@ function App() {
 
           <section className="panel command-panel">
             <div className="panel-label">COMMAND</div>
-            <div className="step-list">
-              {commandSteps.map((step) => (
-                <article className={`step-card status-${step.status}`} key={step.id}>
-                  <div className="step-top">
-                    <span className="tiny-label">{step.label}</span>
-                    <span className="status-chip subtle">{step.status}</span>
-                  </div>
-                  <strong>{step.title}</strong>
-                  <div className="entry-note">{step.detail}</div>
+            <div className="quick-start-strip">
+              {readinessCards.map((card) => (
+                <article className="quick-start-card" key={card.id}>
+                  <span className="tiny-label">{card.label}</span>
+                  <strong>{card.value}</strong>
+                  <div className="entry-note">{card.detail}</div>
                 </article>
               ))}
             </div>
@@ -809,92 +879,20 @@ function App() {
                 <span>{selectedAgentEntries || selectedAgent?.entries || 0} entries</span>
                 <span>{selectedAgent?.roi}</span>
               </div>
-              <div className="agent-stat-line">
-                <span className="tiny-label">agent account</span>
-                <span>
-                  {!arenaLoaded ? "syncing" : selectedAgentAccount ? "provisioned" : "not provisioned"}
-                </span>
-              </div>
-              <div className="agent-stat-line stacked">
-                <span className="tiny-label">owner account</span>
-                <span>{arenaState.mainLoginWallet.address}</span>
-              </div>
-              {selectedAgentAccount ? (
-                <div className="agent-stat-line stacked">
-                  <span className="tiny-label">agent account address</span>
-                  <span>{selectedAgentAccount.address}</span>
-                </div>
-              ) : null}
-              {selectedAgentRegistration ? (
-                <div className="agent-stat-line stacked">
+              <div className="agent-stat-grid compact">
+                <div>
                   <span className="tiny-label">competition profile</span>
-                  <span>{selectedAgentRegistration.nickname}</span>
+                  <strong>{selectedAgentRegistration?.nickname ?? "not activated yet"}</strong>
                 </div>
-              ) : null}
-              {selectedAgentAccount ? (
-                <div className="agent-stat-grid">
-                  <div>
-                    <span className="tiny-label">signer status</span>
-                    <strong>{selectedAgentAccount.signerStatus}</strong>
-                  </div>
-                  <div>
-                    <span className="tiny-label">execution mode</span>
-                    <strong>{selectedAgentAccount.executionMode}</strong>
-                  </div>
-                  <div>
-                    <span className="tiny-label">account type</span>
-                    <strong>{selectedAgentAccount.accountType}</strong>
-                  </div>
+                <div>
+                  <span className="tiny-label">agent account</span>
+                  <strong>{selectedAgentAccount ? "ready" : "pending"}</strong>
                 </div>
-              ) : null}
-              {selectedAgentSigner ? (
-                <div className="agent-stat-grid">
-                  <div>
-                    <span className="tiny-label">signer key</span>
-                    <strong>{selectedAgentSigner.keyId}</strong>
-                  </div>
-                  <div>
-                    <span className="tiny-label">expiry</span>
-                    <strong>{selectedAgentSigner.expiry?.slice(0, 10) ?? "--"}</strong>
-                  </div>
-                  <div>
-                    <span className="tiny-label">allowed</span>
-                    <strong>{selectedAgentSigner.allowedCompetitions?.join(", ") ?? "--"}</strong>
-                  </div>
+                <div>
+                  <span className="tiny-label">agent float</span>
+                  <strong>{(selectedCompetitionWallet?.balance ?? 0).toFixed(2)}</strong>
                 </div>
-              ) : null}
-              {selectedCompetitionWallet ? (
-                <div className="agent-stat-grid">
-                  <div>
-                    <span className="tiny-label">agent float</span>
-                    <strong>{(selectedCompetitionWallet.balance ?? 0).toFixed(2)}</strong>
-                  </div>
-                  <div>
-                    <span className="tiny-label">funded by protocol</span>
-                    <strong>{(selectedCompetitionWallet.fundedTotals?.protocol ?? 0).toFixed(2)}</strong>
-                  </div>
-                  <div>
-                    <span className="tiny-label">funded by wallet</span>
-                    <strong>{(selectedCompetitionWallet.fundedTotals?.wallet ?? 0).toFixed(2)}</strong>
-                  </div>
-                </div>
-              ) : null}
-              {selectedCompetitionWallet ? (
-                <div className="agent-stat-grid">
-                  <div>
-                    <span className="tiny-label">spent total</span>
-                    <strong>{(selectedCompetitionWallet.spentTotal ?? 0).toFixed(2)}</strong>
-                  </div>
-                  <div>
-                    <span className="tiny-label">swept back</span>
-                    <strong>{(selectedCompetitionWallet.sweptTotal ?? 0).toFixed(2)}</strong>
-                  </div>
-                  <div>
-                    <span className="tiny-label">last funding</span>
-                    <strong>{selectedCompetitionWallet.lastFundingSource ?? "none"}</strong>
-                  </div>
-                </div>
-              ) : null}
+              </div>
               {selectedLiveCompetitionEntry ? (
                 <div className="agent-stat-grid">
                   <div>
@@ -913,23 +911,15 @@ function App() {
               ) : null}
             </article>
 
-            <div className="budget-picker">
-              {Object.values(arenaState.budgetSources).map((source) => (
-                <button
-                  className={`budget-chip${source.key === arenaState.selectedBudgetSource ? " active" : ""}`}
-                  key={source.key}
-                  onClick={() => handleBudgetSelect(source.key)}
-                  type="button"
-                >
-                  <span>{source.label}</span>
-                  <span className="tiny-label">{source.available.toFixed(2)} ready</span>
-                </button>
-              ))}
-            </div>
-
-            <form className="registration-form" onSubmit={handleRegisterAgent}>
+            <form
+              className="registration-form"
+              onSubmit={(event) => {
+                event.preventDefault();
+                handleQuickEnter();
+              }}
+            >
               <label className="field-block">
-                <span className="tiny-label">mpp checkers nickname</span>
+                <span className="tiny-label">competition nickname</span>
                 <input
                   className="arena-input"
                   value={registrationForm.nickname}
@@ -944,6 +934,20 @@ function App() {
                 />
               </label>
 
+              <div className="budget-picker">
+                {Object.values(arenaState.budgetSources).map((source) => (
+                  <button
+                    className={`budget-chip${source.key === arenaState.selectedBudgetSource ? " active" : ""}`}
+                    key={source.key}
+                    onClick={() => handleBudgetSelect(source.key)}
+                    type="button"
+                  >
+                    <span>{source.label}</span>
+                    <span className="tiny-label">{source.available.toFixed(2)} ready</span>
+                  </button>
+                ))}
+              </div>
+
               <div className="command-actions">
                 <button
                   className="ghost-button"
@@ -953,50 +957,24 @@ function App() {
                 >
                   {isResetting ? "Resetting..." : "Reset Demo"}
                 </button>
-                <button className="secondary-button" type="submit" disabled={isRegistering}>
-                  {isRegistering ? "Creating..." : "Provision Agent Account"}
-                </button>
                 <button
                   className="secondary-button"
-                  onClick={handleProvisionSigner}
-                  type="button"
-                  disabled={!selectedAgentAccount}
-                >
-                  Provision Signer
-                </button>
-                <button
-                  className="secondary-button"
-                  onClick={handleTopUpCompetitionWallet}
-                  type="button"
-                  disabled={!selectedAgentRegistration}
-                >
-                  Top Up Wallet
-                </button>
-                <button
-                  className="ghost-button"
-                  onClick={handleSweepCompetitionWallet}
-                  type="button"
-                  disabled={!selectedCompetitionWallet?.balance}
-                >
-                  Sweep Back
-                </button>
-                <button
-                  className="action-button"
-                  onClick={handleEnterCompetition}
-                  type="button"
-                  disabled={
-                    isEntering || !selectedCompetition?.externalUrl || !selectedAgentRegistration || !selectedAgentSigner
-                  }
+                  type="submit"
+                  disabled={isEntering || !competitionIsLive || !budgetReady}
                 >
                   {isEntering
                     ? "Entering..."
-                    : selectedCompetition?.externalUrl
-                      ? selectedAgentRegistration
-                        ? selectedAgentSigner
-                          ? `Enter ${selectedCompetition.title}`
-                          : "Provision Signer First"
-                        : "Register Agent First"
-                      : "Competition Not Live Yet"}
+                    : competitionIsLive
+                      ? `Quick Enter ${selectedCompetition?.title ?? "Competition"}`
+                      : "Competition Not Live"}
+                </button>
+                <button
+                  className="action-button"
+                  onClick={handleActivateAgent}
+                  type="button"
+                  disabled={isActivating}
+                >
+                  {isActivating ? "Activating..." : `Activate ${selectedAgent?.name ?? "Agent"}`}
                 </button>
               </div>
 
@@ -1004,23 +982,119 @@ function App() {
               {signerError ? <div className="entry-note error">{signerError}</div> : null}
               {walletActionError ? <div className="entry-note error">{walletActionError}</div> : null}
               {entryError ? <div className="entry-note error">{entryError}</div> : null}
-              {selectedAgentAccount ? (
-                <div className="entry-note">
-                  A Tempo-native agent account now exists for {selectedAgent?.name}. It can hold float, receive top-ups, and own competition profiles.
-                </div>
-              ) : null}
-              {selectedAgentAccount ? (
-                <div className="entry-note">
-                  Target model: owner vaults fund the agent account, then the agent account spends into competitions. Today the live MPP join still executes through the owner signer.
-                </div>
-              ) : null}
               {signerNotice ? <div className="entry-note">{signerNotice}</div> : null}
               {walletActionNotice ? <div className="entry-note">{walletActionNotice}</div> : null}
               <div className="entry-note">
                 {latestEntry
                   ? `${latestEntry.agentName} entered via ${latestEntry.budgetSource}${latestEntry.matchId ? ` · match ${latestEntry.matchId}` : ""}${latestEntry.actualPlayerNickname ? ` · attended as ${latestEntry.actualPlayerNickname}` : ""} for $${latestEntry.amount.toFixed(2)}`
-                  : "Flow: pick an agent, provision an agent account, provision a signer, top it up from protocol or wallet allowance, then enter a live mode."}
+                  : "Choose an agent, set a nickname, pick a funding source, then use Quick Enter. Yield Arena handles activation, signer setup, and wallet funding behind the scenes."}
               </div>
+
+              <details className="advanced-details">
+                <summary>Show protocol details</summary>
+                <div className="advanced-details-body">
+                  <div className="entry-note">
+                    Target model: owner vaults fund the agent account, then the agent account spends into competitions. Today the live MPP join still executes through the owner signer.
+                  </div>
+                  <div className="agent-stat-line stacked">
+                    <span className="tiny-label">owner account</span>
+                    <span>{arenaState.mainLoginWallet.address}</span>
+                  </div>
+                  {selectedAgentAccount ? (
+                    <div className="agent-stat-line stacked">
+                      <span className="tiny-label">agent account address</span>
+                      <span>{selectedAgentAccount.address}</span>
+                    </div>
+                  ) : null}
+                  {selectedAgentAccount ? (
+                    <div className="agent-stat-grid">
+                      <div>
+                        <span className="tiny-label">signer status</span>
+                        <strong>{selectedAgentAccount.signerStatus}</strong>
+                      </div>
+                      <div>
+                        <span className="tiny-label">execution mode</span>
+                        <strong>{selectedAgentAccount.executionMode}</strong>
+                      </div>
+                      <div>
+                        <span className="tiny-label">account type</span>
+                        <strong>{selectedAgentAccount.accountType}</strong>
+                      </div>
+                    </div>
+                  ) : null}
+                  {selectedAgentSigner ? (
+                    <div className="agent-stat-grid">
+                      <div>
+                        <span className="tiny-label">signer key</span>
+                        <strong>{selectedAgentSigner.keyId}</strong>
+                      </div>
+                      <div>
+                        <span className="tiny-label">expiry</span>
+                        <strong>{selectedAgentSigner.expiry?.slice(0, 10) ?? "--"}</strong>
+                      </div>
+                      <div>
+                        <span className="tiny-label">allowed</span>
+                        <strong>{selectedAgentSigner.allowedCompetitions?.join(", ") ?? "--"}</strong>
+                      </div>
+                    </div>
+                  ) : null}
+                  {selectedCompetitionWallet ? (
+                    <div className="agent-stat-grid">
+                      <div>
+                        <span className="tiny-label">funded by protocol</span>
+                        <strong>{(selectedCompetitionWallet.fundedTotals?.protocol ?? 0).toFixed(2)}</strong>
+                      </div>
+                      <div>
+                        <span className="tiny-label">funded by wallet</span>
+                        <strong>{(selectedCompetitionWallet.fundedTotals?.wallet ?? 0).toFixed(2)}</strong>
+                      </div>
+                      <div>
+                        <span className="tiny-label">spent total</span>
+                        <strong>{(selectedCompetitionWallet.spentTotal ?? 0).toFixed(2)}</strong>
+                      </div>
+                    </div>
+                  ) : null}
+                  <div className="command-actions">
+                    <button className="secondary-button" onClick={handleRegisterAgent} type="button" disabled={isRegistering}>
+                      {isRegistering ? "Creating..." : "Manual Register"}
+                    </button>
+                    <button
+                      className="secondary-button"
+                      onClick={handleProvisionSigner}
+                      type="button"
+                      disabled={!selectedAgentAccount}
+                    >
+                      Manual Signer
+                    </button>
+                    <button
+                      className="secondary-button"
+                      onClick={handleTopUpCompetitionWallet}
+                      type="button"
+                      disabled={!selectedAgentRegistration}
+                    >
+                      Top Up Wallet
+                    </button>
+                    <button
+                      className="ghost-button"
+                      onClick={handleSweepCompetitionWallet}
+                      type="button"
+                      disabled={!selectedCompetitionWallet?.balance}
+                    >
+                      Sweep Back
+                    </button>
+                    <button
+                      className="ghost-button"
+                      onClick={handleEnterCompetition}
+                      type="button"
+                      disabled={
+                        isEntering || !selectedCompetition?.externalUrl || !selectedAgentRegistration || !selectedAgentSigner
+                      }
+                    >
+                      Manual Enter
+                    </button>
+                  </div>
+                </div>
+              </details>
             </form>
           </section>
 
