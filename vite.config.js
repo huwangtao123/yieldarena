@@ -276,6 +276,11 @@ function createCompetitionWalletRecord({ agentId, competitionId, address, parent
   };
 }
 
+function normalizeStrategy(value) {
+  const strategy = typeof value === "string" ? value.trim() : "";
+  return strategy.slice(0, 280);
+}
+
 function createAgentSignerRecord({
   agentId,
   accountAddress,
@@ -322,6 +327,7 @@ function buildAgentAccounts() {
       competitionProfiles[legacyRegistration.competitionId] = {
         nickname: legacyRegistration.nickname,
         registeredAt: legacyRegistration.createdAt,
+        strategy: legacyRegistration.customStrategy ?? "",
       };
     }
 
@@ -656,6 +662,7 @@ function getRunnableEntryCount({
 async function ensureCheckersRegistration({
   agentId = arenaState.selectedAgentId,
   nickname,
+  customStrategy,
 } = {}) {
   const agent = arenaState.agents.find((item) => item.id === agentId);
   if (!agent) {
@@ -663,10 +670,18 @@ async function ensureCheckersRegistration({
   }
 
   const existing = arenaState.registrations[agent.id];
+  const nextStrategy = normalizeStrategy(customStrategy);
   if (existing) {
+    const strategyChanged = nextStrategy !== (existing.customStrategy ?? "");
+    if (strategyChanged) {
+      existing.customStrategy = nextStrategy;
+      persistRegistrations();
+      syncDerivedArenaState();
+    }
     return {
       registration: existing,
       created: false,
+      updated: strategyChanged,
     };
   }
 
@@ -716,6 +731,7 @@ async function ensureCheckersRegistration({
     address: registeredAddress,
     createdAt: payload.player?.created_at ?? new Date().toISOString(),
     parentWallet: arenaState.mainLoginWallet.address,
+    customStrategy: nextStrategy,
   };
 
   arenaState.registrations[agent.id] = registration;
@@ -734,6 +750,7 @@ async function ensureCheckersRegistration({
   return {
     registration,
     created: true,
+    updated: false,
   };
 }
 
@@ -900,6 +917,7 @@ async function enterSelectedCompetition({
     color: remoteJoin?.color ?? null,
     participantMode: liveEntry?.participantMode ?? agentSigner.executionMode,
     actualPlayerNickname: liveEntry?.payerNickname ?? null,
+    customStrategy: registration?.customStrategy ?? "",
     signerKeyId: agentSigner.keyId,
     createdAt: new Date().toISOString(),
   };
@@ -939,12 +957,14 @@ function buildRunPlan({
   preferredBudgetSource,
   targetEntries,
   completedEntries,
+  customStrategy,
 }) {
   return {
     id: `run-${agentId}-${competitionId}`,
     agentId,
     competitionId,
     preferredBudgetSource,
+    customStrategy: normalizeStrategy(customStrategy),
     targetEntries,
     completedEntries,
     remainingEntries: Math.max(0, targetEntries - completedEntries),
@@ -957,6 +977,7 @@ async function startCompetitionRun({
   agentId = arenaState.selectedAgentId,
   competitionId = arenaState.selectedCompetitionId,
   preferredBudgetSource = arenaState.selectedBudgetSource,
+  customStrategy,
 } = {}) {
   const existingRunPlan = arenaState.runPlans[getRunPlanKey(agentId, competitionId)];
   if (existingRunPlan && existingRunPlan.status === "armed" && existingRunPlan.remainingEntries > 0) {
@@ -981,6 +1002,7 @@ async function startCompetitionRun({
     preferredBudgetSource,
     targetEntries,
     completedEntries: 1,
+    customStrategy,
   });
 
   arenaState.runPlans[getRunPlanKey(agentId, competitionId)] = runPlan;
@@ -1163,6 +1185,7 @@ function arenaDevApi() {
           const result = await ensureCheckersRegistration({
             agentId: body.agentId,
             nickname: body.nickname,
+            customStrategy: body.customStrategy,
           });
 
           json(res, 200, {
@@ -1186,6 +1209,7 @@ function arenaDevApi() {
           const registration = await ensureCheckersRegistration({
             agentId: body.agentId,
             nickname: body.nickname,
+            customStrategy: body.customStrategy,
           });
           const signer = ensureAgentSigner({
             agentId: body.agentId ?? arenaState.selectedAgentId,
@@ -1363,6 +1387,7 @@ function arenaDevApi() {
           const registration = await ensureCheckersRegistration({
             agentId: body.agentId,
             nickname: body.nickname,
+            customStrategy: body.customStrategy,
           });
           const signer = ensureAgentSigner({
             agentId: body.agentId ?? arenaState.selectedAgentId,
@@ -1371,6 +1396,7 @@ function arenaDevApi() {
             agentId: body.agentId ?? arenaState.selectedAgentId,
             competitionId: body.competitionId ?? arenaState.selectedCompetitionId,
             preferredBudgetSource: body.budgetSource ?? arenaState.selectedBudgetSource,
+            customStrategy: body.customStrategy,
           });
 
           json(res, 200, {

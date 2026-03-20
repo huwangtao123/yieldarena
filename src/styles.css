@@ -34,7 +34,8 @@ body {
 }
 
 button,
-input {
+input,
+textarea {
   font: inherit;
 }
 
@@ -473,6 +474,11 @@ a {
   color: var(--text);
   font-family: var(--font-mono);
   font-size: 0.84rem;
+}
+
+.arena-textarea {
+  min-height: 88px;
+  resize: vertical;
 }
 
 .arena-input:focus {

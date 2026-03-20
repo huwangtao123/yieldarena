@@ -7,6 +7,7 @@ function parseArgs(argv) {
     competitionId: "mpp-checkers",
     budgetSource: "auto",
     nickname: "",
+    strategy: "",
     reset: false,
   };
 
@@ -28,6 +29,9 @@ function parseArgs(argv) {
       index += 1;
     } else if (arg === "--nickname" && next) {
       options.nickname = next;
+      index += 1;
+    } else if (arg === "--strategy" && next) {
+      options.strategy = next;
       index += 1;
     } else if (arg === "--reset") {
       options.reset = true;
@@ -52,6 +56,7 @@ Options:
   --competition-id <id>     Competition id (default: mpp-checkers)
   --budget-source <source>  auto, protocol, or wallet (default: auto)
   --nickname <name>         Checkers nickname override
+  --strategy <text>         Optional custom strategy for this competition
   --reset                   Reset arena demo state before running
   --help                    Show this help
 `);
@@ -193,6 +198,7 @@ async function run() {
       competitionId: competition.id,
       budgetSource,
       nickname: options.nickname || agent.name,
+      customStrategy: options.strategy,
     });
 
     logSection("activation", [
@@ -201,6 +207,7 @@ async function run() {
       `nickname: ${entryResult.registration?.nickname ?? state.registrations?.[agent.id]?.nickname ?? "n/a"}`,
       `agent account: ${entryResult.registration?.address ?? entryResult.entry.walletAddress}`,
       `signer key: ${entryResult.signer?.keyId ?? "existing"}`,
+      `strategy: ${entryResult.registration?.customStrategy || options.strategy || "default"}`,
     ]);
 
     if (entryResult.run) {

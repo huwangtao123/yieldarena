@@ -166,6 +166,7 @@ function App() {
   const [lastRun, setLastRun] = useState(null);
   const [registrationForm, setRegistrationForm] = useState({
     nickname: "yieldArenaBot",
+    customStrategy: "",
   });
   const [isRegistering, setIsRegistering] = useState(false);
   const [registrationError, setRegistrationError] = useState("");
@@ -431,6 +432,7 @@ function App() {
         body: JSON.stringify({
           agentId: arenaState.selectedAgentId,
           nickname: registrationForm.nickname.trim(),
+          customStrategy: registrationForm.customStrategy,
         }),
       });
 
@@ -474,6 +476,7 @@ function App() {
       setLastRun(null);
       setRegistrationForm({
         nickname: data.agents[0]?.name ?? "yieldArenaBot",
+        customStrategy: "",
       });
     } catch {
       setArenaLoaded(false);
@@ -490,13 +493,24 @@ function App() {
     [arenaState.agents, arenaState.selectedAgentId]
   );
 
+  const selectedAgentRegistration = arenaState.registrations?.[arenaState.selectedAgentId];
+  const selectedAgentAccount =
+    arenaState.agentAccounts?.[arenaState.selectedAgentId] ?? null;
+  const selectedCompetitionProfile =
+    selectedAgentAccount?.competitionProfiles?.[arenaState.selectedCompetitionId] ?? null;
+
   useEffect(() => {
     if (!selectedAgent) return;
+    const savedStrategy =
+      selectedAgentAccount?.competitionProfiles?.[arenaState.selectedCompetitionId]?.strategy ??
+      selectedAgentRegistration?.customStrategy ??
+      "";
     setRegistrationForm((current) => ({
       nickname: selectedAgent.name,
+      customStrategy: savedStrategy,
     }));
     setRegistrationError("");
-  }, [selectedAgent]);
+  }, [selectedAgent, selectedAgentAccount, selectedAgentRegistration, arenaState.selectedCompetitionId]);
 
   const selectedCompetition = useMemo(
     () =>
@@ -505,10 +519,6 @@ function App() {
       ) ?? arenaState.competitions[0],
     [arenaState.competitions, arenaState.selectedCompetitionId]
   );
-
-  const selectedAgentRegistration = arenaState.registrations?.[arenaState.selectedAgentId];
-  const selectedAgentAccount =
-    arenaState.agentAccounts?.[arenaState.selectedAgentId] ?? null;
   const selectedAgentSigner = selectedAgentAccount?.signer ?? null;
   const selectedCompetitionWallet =
     arenaState.competitionWallets?.[
@@ -589,6 +599,7 @@ function App() {
         body: JSON.stringify({
           agentId: arenaState.selectedAgentId,
           nickname: registrationForm.nickname.trim(),
+          customStrategy: registrationForm.customStrategy,
         }),
       });
 
@@ -632,6 +643,7 @@ function App() {
           competitionId: arenaState.selectedCompetitionId,
           budgetSource: arenaState.selectedBudgetSource,
           nickname: registrationForm.nickname.trim(),
+          customStrategy: registrationForm.customStrategy,
         }),
       });
 
@@ -954,22 +966,29 @@ function App() {
                 <span>{selectedAgentEntries || selectedAgent?.entries || 0} entries</span>
                 <span>{selectedAgent?.roi}</span>
               </div>
-              <div className="agent-stat-grid compact">
-                <div>
-                  <span className="tiny-label">competition profile</span>
-                  <strong>{selectedAgentRegistration?.nickname ?? "not activated yet"}</strong>
-                </div>
-                <div>
-                  <span className="tiny-label">agent account</span>
-                  <strong>{selectedAgentAccount ? "ready" : "pending"}</strong>
-                </div>
-                <div>
-                  <span className="tiny-label">agent float</span>
-                  <strong>{(selectedCompetitionWallet?.balance ?? 0).toFixed(2)}</strong>
-                </div>
-              </div>
-              {selectedRunPlan ? (
-                <div className="agent-stat-grid compact">
+          <div className="agent-stat-grid compact">
+            <div>
+              <span className="tiny-label">competition profile</span>
+              <strong>{selectedAgentRegistration?.nickname ?? "not activated yet"}</strong>
+            </div>
+            <div>
+              <span className="tiny-label">agent account</span>
+              <strong>{selectedAgentAccount ? "ready" : "pending"}</strong>
+            </div>
+            <div>
+              <span className="tiny-label">agent float</span>
+              <strong>{(selectedCompetitionWallet?.balance ?? 0).toFixed(2)}</strong>
+            </div>
+          </div>
+          {selectedCompetitionProfile?.strategy ? (
+            <div className="entry-note">
+              <span className="tiny-label">custom strategy</span>
+              <br />
+              {selectedCompetitionProfile.strategy}
+            </div>
+          ) : null}
+          {selectedRunPlan ? (
+            <div className="agent-stat-grid compact">
                   <div>
                     <span className="tiny-label">run status</span>
                     <strong>{selectedRunPlan.status}</strong>
@@ -1024,8 +1043,23 @@ function App() {
                   required
                 />
               </label>
+              <label className="field-block">
+                <span className="tiny-label">custom strategy (optional)</span>
+                <textarea
+                  className="arena-input arena-textarea"
+                  value={registrationForm.customStrategy}
+                  onChange={(event) =>
+                    setRegistrationForm((current) => ({
+                      ...current,
+                      customStrategy: event.target.value,
+                    }))
+                  }
+                  placeholder="Examples: play aggressively for fast wins, prioritize draws against stronger bots, buy time in early game."
+                  rows={3}
+                />
+              </label>
               <div className="entry-note entry-note-strong">
-                Leave the default nickname if you want. Play Budget is used automatically, and the arena keeps the run going while budget remains.
+                Leave the defaults if you want. Play Budget is used automatically, and the arena keeps the run going while budget remains.
               </div>
 
               <div className="command-actions">
@@ -1063,9 +1097,9 @@ function App() {
                     ? `Run status: ${selectedRunPlan.completedEntries} live started, ${selectedRunPlan.remainingEntries} queued next. The next match will start automatically after the current one finishes.`
                   : lastRun
                     ? `Latest run started with 1 live match and ${lastRun.runPlan?.remainingEntries ?? 0} queued next.`
-                    : latestEntry
-                      ? `${latestEntry.agentName} entered via ${latestEntry.budgetSource}${latestEntry.matchId ? ` · match ${latestEntry.matchId}` : ""}${latestEntry.actualPlayerNickname ? ` · attended as ${latestEntry.actualPlayerNickname}` : ""} for $${latestEntry.amount.toFixed(2)}`
-                    : "Pick an agent and press Start. Yield Arena handles activation, signer setup, and run funding automatically."}
+                  : latestEntry
+                    ? `${latestEntry.agentName} entered via ${latestEntry.budgetSource}${latestEntry.matchId ? ` · match ${latestEntry.matchId}` : ""}${latestEntry.actualPlayerNickname ? ` · attended as ${latestEntry.actualPlayerNickname}` : ""}${latestEntry.customStrategy ? ` · strategy saved` : ""} for $${latestEntry.amount.toFixed(2)}`
+                    : "Pick an agent, optionally add a custom strategy, then press Start. Yield Arena handles activation, signer setup, and run funding automatically."}
               </div>
 
               <details className="advanced-details">
