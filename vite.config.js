@@ -2,7 +2,16 @@ import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import { randomBytes } from "node:crypto";
 import { execFile, execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  unlinkSync,
+  writeFileSync,
+} from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
@@ -17,6 +26,19 @@ const execFileAsync = promisify(execFile);
 const tempoBinPath = process.env.HOME
   ? path.join(process.env.HOME, ".local", "bin", "tempo")
   : "/Users/taowang/.local/bin/tempo";
+const tempoWalletBinPath = process.env.HOME
+  ? path.join(process.env.HOME, ".local", "bin", "tempo-wallet")
+  : "/Users/taowang/.local/bin/tempo-wallet";
+const tempoRequestBinPath = process.env.HOME
+  ? path.join(process.env.HOME, ".local", "bin", "tempo-request")
+  : "/Users/taowang/.local/bin/tempo-request";
+const castBinPath = process.env.HOME
+  ? path.join(process.env.HOME, ".foundry", "bin", "cast")
+  : "/Users/taowang/.foundry/bin/cast";
+const tempoRpcUrl = "https://rpc.mainnet.tempo.xyz";
+const tempoUsdToken = "0x20c000000000000000000000b9537d11c60e8b50";
+const tokenDecimals = 6;
+const realAgentExecutionFloatFloor = 0.1;
 
 function loadTempoWalletAddress() {
   try {
@@ -33,7 +55,6 @@ function loadTempoWalletAddress() {
 }
 
 const mainTempoWalletAddress = loadTempoWalletAddress();
-const realAgentSignerEnabled = process.env.YIELD_ARENA_ENABLE_REAL_AGENT_SIGNER === "1";
 
 function slugifyAgentId(value) {
   return value
@@ -214,7 +235,40 @@ function loadPersistedCompetitionWallets() {
   try {
     const raw = readFileSync(competitionWalletsPath, "utf8");
     const parsed = JSON.parse(raw);
-    return parsed && typeof parsed === "object" ? parsed : {};
+    if (!parsed || typeof parsed !== "object") {
+      return {};
+    }
+
+    return Object.fromEntries(
+      Object.entries(parsed).map(([key, value]) => {
+        const item = value && typeof value === "object" ? value : {};
+        return [key, {
+          accountType: "tempo_local_account",
+          signerType: "direct_eoa",
+          privateKey: null,
+          status: "ready",
+          balance: 0,
+          budgetBalance: 0,
+          executionFloatBalance: 0,
+          fundedTotals: {
+            protocol: 0,
+            wallet: 0,
+          },
+          spentTotal: 0,
+          actualSpentTotal: 0,
+          sweptTotal: 0,
+          executionFloatFunded: 0,
+          executionFloatRecovered: 0,
+          rewardsRecovered: 0,
+          ...item,
+          fundedTotals: {
+            protocol: 0,
+            wallet: 0,
+            ...(item.fundedTotals ?? {}),
+          },
+        }];
+      }),
+    );
   } catch {
     return {};
   }
@@ -271,14 +325,23 @@ function createCompetitionWalletRecord({ agentId, competitionId, address, parent
     competitionId,
     address,
     parentWallet,
+    accountType: "tempo_local_account",
+    signerType: "direct_eoa",
+    privateKey: null,
     status: "ready",
     balance: 0,
+    budgetBalance: 0,
+    executionFloatBalance: 0,
     fundedTotals: {
       protocol: 0,
       wallet: 0,
     },
     spentTotal: 0,
+    actualSpentTotal: 0,
     sweptTotal: 0,
+    executionFloatFunded: 0,
+    executionFloatRecovered: 0,
+    rewardsRecovered: 0,
     lastFundingSource: null,
     lastFundingAt: null,
     lastSpendAt: null,
@@ -292,10 +355,10 @@ function normalizeStrategy(value) {
 }
 
 function getRequestedSignerMode() {
-  return "tempo_agent_access_key";
+  return "tempo_direct_eoa";
 }
 
-function buildSignerExecutionState({ registrationAddress }) {
+function buildSignerExecutionState({ registrationAddress, competitionWallet }) {
   const requestedMode = getRequestedSignerMode();
 
   if (registrationAddress === mainTempoWalletAddress) {
@@ -308,13 +371,18 @@ function buildSignerExecutionState({ registrationAddress }) {
     };
   }
 
-  if (realAgentSignerEnabled) {
+  if (
+    competitionWallet?.privateKey &&
+    competitionWallet?.address &&
+    registrationAddress &&
+    competitionWallet.address.toLowerCase() === registrationAddress.toLowerCase()
+  ) {
     return {
       requestedMode,
       effectiveMode: requestedMode,
       status: "provisioned",
       realSignerReady: true,
-      executionNote: "Per-agent signer execution is enabled for external paid actions.",
+      executionNote: "External paid actions execute directly from the agent account signer.",
     };
   }
 
@@ -324,7 +392,7 @@ function buildSignerExecutionState({ registrationAddress }) {
     status: "provisioned_fallback",
     realSignerReady: false,
     executionNote:
-      "Per-agent Tempo signer execution is not wired yet, so external paid entry still falls back to the main wallet.",
+      "Agent account execution is not available for this competition wallet, so external paid entry falls back to the main wallet.",
   };
 }
 
@@ -337,7 +405,7 @@ function buildArenaBudgetPolicy({
   const walletKey = getCompetitionWalletKey(agentId, competitionId);
   const competitionWallet = arenaState.competitionWallets[walletKey];
   const playableYield = roundMoney(getRunnableBudget(preferredBudgetSource));
-  const competitionFloat = roundMoney(competitionWallet?.balance ?? 0);
+  const competitionFloat = roundMoney(competitionWallet?.budgetBalance ?? 0);
   const spendableNow = roundMoney(playableYield + competitionFloat);
 
   return {
@@ -412,13 +480,17 @@ function createAgentSignerRecord({
   agentId,
   accountAddress,
   registrationAddress,
+  competitionWallet,
   competitionId = "mpp-checkers",
   preferredBudgetSource = arenaState.selectedBudgetSource,
 }) {
   const now = Date.now();
   const expiry = new Date(now + 30 * 24 * 60 * 60 * 1000).toISOString();
   const publicKey = `0x${randomBytes(32).toString("hex")}`;
-  const executionState = buildSignerExecutionState({ registrationAddress });
+  const executionState = buildSignerExecutionState({
+    registrationAddress,
+    competitionWallet,
+  });
   const arenaBudgetPolicy = buildArenaBudgetPolicy({
     agentId,
     competitionId,
@@ -492,20 +564,28 @@ function buildAgentAccounts() {
       executionMode: signer?.effectiveMode ?? signer?.executionMode ??
         (legacyRegistration?.address === arenaState.mainLoginWallet.address
           ? "native"
-          : legacyRegistration
-            ? "delegated_main_wallet"
+          : competitionWallet?.privateKey
+            ? "tempo_direct_eoa"
+            : legacyRegistration
+              ? "delegated_main_wallet"
             : "pending"),
       realSignerReady: signer?.realSignerReady ?? false,
       executionNote: signer?.executionNote ?? null,
       budgetEnforcement: signer?.budgetEnforcement ?? "arena_yield_allowance",
       arenaBudgetPolicy: signer?.arenaBudgetPolicy ?? null,
       balance: competitionWallet?.balance ?? 0,
+      budgetBalance: competitionWallet?.budgetBalance ?? 0,
+      executionFloatBalance: competitionWallet?.executionFloatBalance ?? 0,
       fundedTotals: competitionWallet?.fundedTotals ?? {
         protocol: 0,
         wallet: 0,
       },
       spentTotal: competitionWallet?.spentTotal ?? 0,
+      actualSpentTotal: competitionWallet?.actualSpentTotal ?? 0,
       sweptTotal: competitionWallet?.sweptTotal ?? 0,
+      executionFloatFunded: competitionWallet?.executionFloatFunded ?? 0,
+      executionFloatRecovered: competitionWallet?.executionFloatRecovered ?? 0,
+      rewardsRecovered: competitionWallet?.rewardsRecovered ?? 0,
       lastFundingSource: competitionWallet?.lastFundingSource ?? null,
       lastFundingAt: competitionWallet?.lastFundingAt ?? null,
       lastSpendAt: competitionWallet?.lastSpendAt ?? null,
@@ -582,7 +662,7 @@ function addFundingLedgerItem(item) {
   arenaState.fundingLedger.unshift(item);
 }
 
-function topUpCompetitionWallet({
+async function topUpCompetitionWallet({
   agentId,
   competitionId,
   sourceKey,
@@ -606,14 +686,20 @@ function topUpCompetitionWallet({
   }
 
   const now = new Date().toISOString();
+  const transfer = await runMainWalletTransferJson({
+    amount,
+    to: competitionWallet.address,
+  });
+
   vault.availableAllowance = roundMoney(vault.availableAllowance - amount);
   vault.lifetimeFunded = roundMoney((vault.lifetimeFunded ?? 0) + amount);
-  competitionWallet.balance = roundMoney(competitionWallet.balance + amount);
+  competitionWallet.budgetBalance = roundMoney((competitionWallet.budgetBalance ?? 0) + amount);
   competitionWallet.fundedTotals[sourceKey] = roundMoney(
     (competitionWallet.fundedTotals[sourceKey] ?? 0) + amount,
   );
   competitionWallet.lastFundingSource = sourceKey;
   competitionWallet.lastFundingAt = now;
+  competitionWallet.balance = await refreshCompetitionWalletBalance({ agentId, competitionId });
 
   const ledgerItem = {
     id: `ledger-topup-${Date.now()}`,
@@ -624,6 +710,7 @@ function topUpCompetitionWallet({
     agentId,
     competitionId,
     walletAddress: competitionWallet.address,
+    txHash: transfer.tx_hash ?? null,
     createdAt: now,
   };
 
@@ -637,7 +724,7 @@ function topUpCompetitionWallet({
   };
 }
 
-function sweepCompetitionWallet({
+async function sweepCompetitionWallet({
   agentId,
   competitionId,
   destinationKey = "wallet",
@@ -654,26 +741,61 @@ function sweepCompetitionWallet({
     throw new Error("vault not found");
   }
 
-  if (competitionWallet.balance <= 0) {
+  const balance = await refreshCompetitionWalletBalance({ agentId, competitionId });
+  if (balance <= 0) {
     throw new Error("competition wallet has no balance to sweep");
   }
 
-  const amount = competitionWallet.balance;
+  const amount = balance;
   const now = new Date().toISOString();
+  const budgetRecoverable = roundMoney(
+    Math.min(competitionWallet.budgetBalance ?? 0, amount),
+  );
+  const executionRecoverable = roundMoney(
+    Math.min(competitionWallet.executionFloatBalance ?? 0, Math.max(0, amount - budgetRecoverable)),
+  );
+  const rewardRecoverable = roundMoney(
+    Math.max(0, amount - budgetRecoverable - executionRecoverable),
+  );
+
+  const transfer = await withTempoHome(competitionWallet, (tempoHome) =>
+    runTempoWalletTransferJson({
+      amount,
+      to: arenaState.mainLoginWallet.address,
+      tempoHome,
+    }));
+
   competitionWallet.balance = 0;
-  competitionWallet.sweptTotal = roundMoney(competitionWallet.sweptTotal + amount);
+  competitionWallet.budgetBalance = roundMoney(
+    Math.max(0, (competitionWallet.budgetBalance ?? 0) - budgetRecoverable),
+  );
+  competitionWallet.executionFloatBalance = roundMoney(
+    Math.max(0, (competitionWallet.executionFloatBalance ?? 0) - executionRecoverable),
+  );
+  competitionWallet.sweptTotal = roundMoney(
+    (competitionWallet.sweptTotal ?? 0) + budgetRecoverable,
+  );
+  competitionWallet.executionFloatRecovered = roundMoney(
+    (competitionWallet.executionFloatRecovered ?? 0) + executionRecoverable,
+  );
+  competitionWallet.rewardsRecovered = roundMoney(
+    (competitionWallet.rewardsRecovered ?? 0) + rewardRecoverable,
+  );
   competitionWallet.lastSweepAt = now;
-  vault.availableAllowance = roundMoney(vault.availableAllowance + amount);
+  vault.availableAllowance = roundMoney(vault.availableAllowance + budgetRecoverable + rewardRecoverable);
 
   const ledgerItem = {
     id: `ledger-sweep-${Date.now()}`,
     type: "sweep",
     label: `Swept ${competitionId} wallet back to ${destinationKey}`,
     source: destinationKey,
-    amount,
+    amount: budgetRecoverable + rewardRecoverable,
     agentId,
     competitionId,
     walletAddress: competitionWallet.address,
+    txHash: transfer.tx_hash ?? null,
+    operationalRecovered: executionRecoverable,
+    rewardRecovered: rewardRecoverable,
     createdAt: now,
   };
 
@@ -743,7 +865,7 @@ function createArenaAgent({ name } = {}) {
   return agent;
 }
 
-function deleteArenaAgent({
+async function deleteArenaAgent({
   agentId = arenaState.selectedAgentId,
 } = {}) {
   const agentIndex = arenaState.agents.findIndex((agent) => agent.id === agentId);
@@ -764,16 +886,18 @@ function deleteArenaAgent({
       continue;
     }
 
-    if (competitionWallet.balance > 0) {
-      const amount = competitionWallet.balance;
-      const now = new Date().toISOString();
-      competitionWallet.balance = 0;
-      competitionWallet.sweptTotal = roundMoney(competitionWallet.sweptTotal + amount);
-      competitionWallet.lastSweepAt = now;
-      arenaState.vaults.wallet.availableAllowance = roundMoney(
-        arenaState.vaults.wallet.availableAllowance + amount,
-      );
-      sweptAmount = roundMoney(sweptAmount + amount);
+    const balance = await refreshCompetitionWalletBalance({
+      agentId,
+      competitionId: competitionWallet.competitionId,
+    });
+
+    if (balance > 0) {
+      const result = await sweepCompetitionWallet({
+        agentId,
+        competitionId: competitionWallet.competitionId,
+        destinationKey: "wallet",
+      });
+      sweptAmount = roundMoney(sweptAmount + (result.ledgerItem.amount ?? 0));
       sweptWallets += 1;
 
       addFundingLedgerItem({
@@ -781,11 +905,11 @@ function deleteArenaAgent({
         type: "agent_delete_sweep",
         label: `Deleted ${removedAgent.name} and swept ${competitionWallet.competitionId} wallet`,
         source: "wallet",
-        amount,
+        amount: result.ledgerItem.amount ?? 0,
         agentId,
         competitionId: competitionWallet.competitionId,
         walletAddress: competitionWallet.address,
-        createdAt: now,
+        createdAt: new Date().toISOString(),
       });
     }
 
@@ -832,11 +956,160 @@ function json(res, statusCode, payload) {
   res.end(JSON.stringify(payload));
 }
 
-async function runTempoRequestJson(url, args = []) {
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function deriveTempoLocalAddress(privateKey) {
   const { stdout } = await execFileAsync(
-    tempoBinPath,
-    ["request", "-s", ...args, url],
+    castBinPath,
+    ["wallet", "address", "--private-key", privateKey],
     {
+      timeout: 10000,
+      maxBuffer: 1024 * 1024,
+    },
+  );
+  return stdout.trim().toLowerCase();
+}
+
+function writeTempoHome({ tempoHome, walletAddress, privateKey }) {
+  mkdirSync(path.join(tempoHome, "wallet"), { recursive: true });
+  writeFileSync(
+    path.join(tempoHome, "config.toml"),
+    "# Tempo wallet configuration\n[rpc]\n",
+    "utf8",
+  );
+  writeFileSync(
+    path.join(tempoHome, "wallet", "keys.toml"),
+    [
+      "[[keys]]",
+      'wallet_type = "local"',
+      `wallet_address = "${walletAddress}"`,
+      "chain_id = 4217",
+      'key_type = "secp256k1"',
+      `key_address = "${walletAddress}"`,
+      `key = "${privateKey}"`,
+      "",
+    ].join("\n"),
+    "utf8",
+  );
+}
+
+async function withTempoHome({ walletAddress, privateKey }, fn) {
+  const tempoHome = mkdtempSync(path.join(os.tmpdir(), "yield-arena-agent-"));
+  writeTempoHome({ tempoHome, walletAddress, privateKey });
+
+  try {
+    return await fn(tempoHome);
+  } finally {
+    rmSync(tempoHome, { recursive: true, force: true });
+  }
+}
+
+async function queryTempoTokenBalance(address) {
+  const { stdout } = await execFileAsync(
+    castBinPath,
+    [
+      "call",
+      tempoUsdToken,
+      "balanceOf(address)(uint256)",
+      address,
+      "--rpc-url",
+      tempoRpcUrl,
+    ],
+    {
+      timeout: 15000,
+      maxBuffer: 1024 * 1024,
+    },
+  );
+  const raw = stdout.trim().split(/\s+/)[0] ?? "0";
+  return roundMoney(Number(raw) / 10 ** tokenDecimals);
+}
+
+async function refreshCompetitionWalletBalance({
+  agentId,
+  competitionId,
+}) {
+  const walletKey = getCompetitionWalletKey(agentId, competitionId);
+  const competitionWallet = arenaState.competitionWallets[walletKey];
+
+  if (!competitionWallet?.address) {
+    return 0;
+  }
+
+  const balance = await queryTempoTokenBalance(competitionWallet.address);
+  competitionWallet.balance = balance;
+  return balance;
+}
+
+async function runTempoRequestJson(url, args = [], options = {}) {
+  const env = {
+    ...process.env,
+    ...(options.env ?? {}),
+  };
+  const usesTempoHome = Boolean(env.TEMPO_HOME);
+  const command = usesTempoHome ? "/usr/bin/env" : options.binPath ?? tempoRequestBinPath;
+  const commandArgs = usesTempoHome
+    ? [`TEMPO_HOME=${env.TEMPO_HOME}`, options.binPath ?? tempoRequestBinPath, "-s", ...args, url]
+    : ["-s", ...args, url];
+  try {
+    const { stdout } = await execFileAsync(
+      command,
+      commandArgs,
+      {
+        env: usesTempoHome
+          ? process.env
+          : env,
+        timeout: 45000,
+        maxBuffer: 1024 * 1024,
+      },
+    );
+
+    return JSON.parse(stdout);
+  } catch (error) {
+    const stdout = String(error?.stdout ?? "").trim();
+    const stderr = String(error?.stderr ?? "").trim();
+    if (stdout) {
+      error.message = `${error.message}\n${stdout}`;
+    }
+    if (stderr) {
+      error.message = `${error.message}\n${stderr}`;
+    }
+    throw error;
+  }
+}
+
+async function runTempoWalletTransferJson({
+  amount,
+  to,
+  tempoHome,
+}) {
+  const env = {
+    ...process.env,
+    TEMPO_HOME: tempoHome,
+  };
+  const { stdout } = await execFileAsync(
+    tempoWalletBinPath,
+    ["-s", "transfer", amount.toFixed(2), tempoUsdToken, to],
+    {
+      env,
+      timeout: 45000,
+      maxBuffer: 1024 * 1024,
+    },
+  );
+
+  return JSON.parse(stdout);
+}
+
+async function runMainWalletTransferJson({
+  amount,
+  to,
+}) {
+  const { stdout } = await execFileAsync(
+    tempoWalletBinPath,
+    ["-s", "transfer", amount.toFixed(2), tempoUsdToken, to],
+    {
+      env: process.env,
       timeout: 45000,
       maxBuffer: 1024 * 1024,
     },
@@ -894,8 +1167,128 @@ function readJsonBody(req) {
   });
 }
 
-function generateAssociatedWallet() {
-  return `0x${randomBytes(20).toString("hex")}`;
+async function ensureCompetitionWalletAccount({
+  agentId = arenaState.selectedAgentId,
+  competitionId = arenaState.selectedCompetitionId,
+} = {}) {
+  const walletKey = getCompetitionWalletKey(agentId, competitionId);
+  const existing = arenaState.competitionWallets[walletKey];
+  if (existing?.address && existing?.privateKey) {
+    return existing;
+  }
+
+  const privateKey = `0x${randomBytes(32).toString("hex")}`;
+  const address = await deriveTempoLocalAddress(privateKey);
+  const record = createCompetitionWalletRecord({
+    agentId,
+    competitionId,
+    address,
+    parentWallet: arenaState.mainLoginWallet.address,
+  });
+  record.privateKey = privateKey;
+  arenaState.competitionWallets[walletKey] = record;
+  persistCompetitionWallets();
+  syncDerivedArenaState();
+  return record;
+}
+
+async function ensureRealAgentExecutionFloat({
+  agentId,
+  competitionId,
+  minimumBalance = realAgentExecutionFloatFloor,
+}) {
+  const walletKey = getCompetitionWalletKey(agentId, competitionId);
+  const competitionWallet = arenaState.competitionWallets[walletKey];
+
+  if (!competitionWallet?.privateKey) {
+    return null;
+  }
+
+  const currentBalance = await refreshCompetitionWalletBalance({ agentId, competitionId });
+  if (currentBalance >= minimumBalance) {
+    competitionWallet.executionFloatBalance = roundMoney(
+      Math.max(competitionWallet.executionFloatBalance ?? 0, currentBalance - (competitionWallet.budgetBalance ?? 0)),
+    );
+    return null;
+  }
+
+  const amount = roundMoney(minimumBalance - currentBalance);
+  if (amount <= 0) {
+    return null;
+  }
+
+  const transfer = await runMainWalletTransferJson({
+    amount,
+    to: competitionWallet.address,
+  });
+
+  competitionWallet.executionFloatBalance = roundMoney(
+    (competitionWallet.executionFloatBalance ?? 0) + amount,
+  );
+  competitionWallet.executionFloatFunded = roundMoney(
+    (competitionWallet.executionFloatFunded ?? 0) + amount,
+  );
+  competitionWallet.lastFundingSource = "execution_float";
+  competitionWallet.lastFundingAt = new Date().toISOString();
+  competitionWallet.balance = await refreshCompetitionWalletBalance({ agentId, competitionId });
+
+  const ledgerItem = {
+    id: `ledger-execution-float-${Date.now()}`,
+    type: "execution_float",
+    label: `Seeded execution float for ${competitionId}`,
+    source: "arena",
+    amount,
+    agentId,
+    competitionId,
+    walletAddress: competitionWallet.address,
+    txHash: transfer.tx_hash ?? null,
+    createdAt: new Date().toISOString(),
+  };
+
+  addFundingLedgerItem(ledgerItem);
+  syncDerivedArenaState();
+  persistCompetitionWallets();
+
+  return {
+    competitionWallet,
+    ledgerItem,
+  };
+}
+
+function isTempoAccountReadinessError(error) {
+  const message = String(
+    error?.message ??
+    error?.stdout ??
+    error?.stderr ??
+    "",
+  ).toLowerCase();
+
+  return (
+    message.includes("insufficient gas for intrinsic cost") ||
+    message.includes("verification-failed") ||
+    message.includes("invalid nonce") ||
+    message.includes("nonce too low")
+  );
+}
+
+async function waitForAgentAccountReadiness({
+  agentId,
+  competitionId,
+  requiredBalance = 0,
+}) {
+  const walletKey = getCompetitionWalletKey(agentId, competitionId);
+  const competitionWallet = arenaState.competitionWallets[walletKey];
+  if (!competitionWallet?.address) {
+    return 0;
+  }
+
+  const balance = await refreshCompetitionWalletBalance({ agentId, competitionId });
+  if (requiredBalance > 0 && balance < requiredBalance) {
+    throw new Error("agent account is not funded enough for execution");
+  }
+
+  await sleep(5000);
+  return balance;
 }
 
 function getBudgetPreferenceOrder(selectedBudgetSource = arenaState.selectedBudgetSource) {
@@ -956,7 +1349,17 @@ async function ensureCheckersRegistration({
 
   const existing = arenaState.registrations[agent.id];
   const nextStrategy = normalizeStrategy(customStrategy);
-  if (existing) {
+  const existingWallet = arenaState.competitionWallets[
+    getCompetitionWalletKey(agent.id, "mpp-checkers")
+  ];
+  const hasRealAgentAccount = Boolean(
+    existingWallet?.privateKey &&
+    existingWallet?.address &&
+    existing?.address &&
+    existingWallet.address.toLowerCase() === existing.address.toLowerCase(),
+  );
+
+  if (existing && hasRealAgentAccount) {
     const strategyChanged = nextStrategy !== (existing.customStrategy ?? "");
     if (strategyChanged) {
       existing.customStrategy = nextStrategy;
@@ -974,9 +1377,12 @@ async function ensureCheckersRegistration({
   let payload = {};
   let resolvedNickname = baseNickname;
   let registeredAddress = null;
+  const competitionWallet = await ensureCompetitionWalletAccount({
+    agentId: agent.id,
+    competitionId: "mpp-checkers",
+  });
 
   for (let attempt = 0; attempt < 5; attempt += 1) {
-    const address = generateAssociatedWallet();
     resolvedNickname = attempt === 0
       ? baseNickname
       : `${baseNickname}${String(randomBytes(2).toString("hex")).slice(0, 4)}`;
@@ -988,13 +1394,13 @@ async function ensureCheckersRegistration({
       },
       body: JSON.stringify({
         nickname: resolvedNickname,
-        address,
+        address: competitionWallet.address,
       }),
     });
 
     payload = await upstream.json().catch(() => ({}));
     if (upstream.ok) {
-      registeredAddress = payload.player?.address ?? address;
+      registeredAddress = payload.player?.address ?? competitionWallet.address;
       break;
     }
 
@@ -1022,12 +1428,10 @@ async function ensureCheckersRegistration({
   arenaState.registrations[agent.id] = registration;
   arenaState.competitionWallets[
     getCompetitionWalletKey(agent.id, registration.competitionId)
-  ] = createCompetitionWalletRecord({
-    agentId: agent.id,
-    competitionId: registration.competitionId,
+  ] = {
+    ...competitionWallet,
     address: registration.address,
-    parentWallet: registration.parentWallet,
-  });
+  };
   persistRegistrations();
   persistCompetitionWallets();
   syncDerivedArenaState();
@@ -1046,6 +1450,9 @@ function ensureAgentSigner({
 } = {}) {
   const agentAccount = arenaState.agentAccounts[agentId];
   const registration = arenaState.registrations[agentId];
+  const competitionWallet = arenaState.competitionWallets[
+    getCompetitionWalletKey(agentId, competitionId)
+  ];
 
   if (!agentAccount || !registration) {
     throw new Error("agent account is not provisioned yet");
@@ -1069,6 +1476,7 @@ function ensureAgentSigner({
     agentId,
     accountAddress: agentAccount.address,
     registrationAddress: registration.address,
+    competitionWallet,
     competitionId,
     preferredBudgetSource,
   });
@@ -1084,11 +1492,11 @@ function ensureAgentSigner({
 }
 
 function getCompetitionExecutionContext({ agentSigner, registration, competitionWallet }) {
-  if (agentSigner?.effectiveMode === "tempo_agent_access_key") {
+  if (agentSigner?.effectiveMode === "tempo_direct_eoa") {
     return {
-      participantMode: "tempo_agent_access_key",
+      participantMode: "tempo_direct_eoa",
       payerWallet: competitionWallet?.address ?? registration?.address ?? null,
-      executionNote: "External paid action executed by the agent account signer.",
+      executionNote: "External paid action executed by the real agent account signer.",
     };
   }
 
@@ -1156,7 +1564,7 @@ async function enterSelectedCompetition({
   const walletKey = getCompetitionWalletKey(agent.id, competitionId);
   const competitionWallet = arenaState.competitionWallets[walletKey];
 
-  if (!effectiveBudgetSource && competitionWallet?.balance < entryCost) {
+  if (!effectiveBudgetSource && (competitionWallet?.budgetBalance ?? 0) < entryCost) {
     const error = new Error("insufficient budget");
     error.available = arenaState.playBudget;
     error.required = entryCost;
@@ -1174,9 +1582,9 @@ async function enterSelectedCompetition({
   });
 
   let topUp = null;
-  if (competitionWallet.balance < entryCost) {
-    const topUpAmount = roundMoney(entryCost - competitionWallet.balance);
-    const fundingResult = topUpCompetitionWallet({
+  if ((competitionWallet.budgetBalance ?? 0) < entryCost) {
+    const topUpAmount = roundMoney(entryCost - (competitionWallet.budgetBalance ?? 0));
+    const fundingResult = await topUpCompetitionWallet({
       agentId: agent.id,
       competitionId,
       sourceKey: effectiveBudgetSource,
@@ -1186,23 +1594,73 @@ async function enterSelectedCompetition({
     topUp = fundingResult.ledgerItem;
   }
 
+  const executionFloatTopUp = await ensureRealAgentExecutionFloat({
+    agentId: agent.id,
+    competitionId,
+  });
+
   let remoteJoin = null;
   let remoteState = null;
   let liveEntry = null;
 
   if (competitionId === "mpp-checkers") {
-    if (executionContext.participantMode === "tempo_agent_access_key") {
-      throw new Error("real per-agent signer execution path is not implemented yet");
-    }
+    const balanceBefore = await refreshCompetitionWalletBalance({
+      agentId: agent.id,
+      competitionId,
+    });
+    const requestArgs = ["-X", "POST"];
 
-    remoteJoin = await runTempoRequestJson("https://mpp-checkers.com/games", [
-      "-X",
-      "POST",
-    ]);
+    if (executionContext.participantMode === "tempo_direct_eoa") {
+      if (topUp || executionFloatTopUp) {
+        await waitForAgentAccountReadiness({
+          agentId: agent.id,
+          competitionId,
+          requiredBalance: realAgentExecutionFloatFloor,
+        });
+      }
+
+      let lastError = null;
+      for (let attempt = 0; attempt < 6; attempt += 1) {
+        try {
+          remoteJoin = await runTempoRequestJson(
+            "https://mpp-checkers.com/games",
+            requestArgs,
+            {
+              env: {
+                TEMPO_PRIVATE_KEY: competitionWallet.privateKey,
+              },
+            },
+          );
+          break;
+        } catch (error) {
+          lastError = error;
+          if (attempt < 5 && isTempoAccountReadinessError(error)) {
+            await sleep(5000);
+            continue;
+          }
+          break;
+        }
+      }
+
+      if (!remoteJoin && lastError) {
+        throw lastError;
+      }
+    } else {
+      remoteJoin = await runTempoRequestJson("https://mpp-checkers.com/games", requestArgs);
+    }
     remoteState = await fetchGameState(remoteJoin.game_id);
     const actualPlayerNickname = remoteJoin.color === "black"
       ? remoteState.black
       : remoteState.red;
+    const balanceAfter = await refreshCompetitionWalletBalance({
+      agentId: agent.id,
+      competitionId,
+    });
+    const actualSpend = roundMoney(Math.max(0, balanceBefore - balanceAfter));
+    const logicalSpend = roundMoney(
+      Math.min(entryCost, competitionWallet.budgetBalance ?? entryCost),
+    );
+    const executionSpend = roundMoney(Math.max(0, actualSpend - logicalSpend));
 
     liveEntry = {
       agentId: agent.id,
@@ -1226,6 +1684,17 @@ async function enterSelectedCompetition({
     };
 
     arenaState.liveCompetitionEntries[walletKey] = liveEntry;
+
+    competitionWallet.budgetBalance = roundMoney(
+      Math.max(0, (competitionWallet.budgetBalance ?? 0) - logicalSpend),
+    );
+    competitionWallet.executionFloatBalance = roundMoney(
+      Math.max(0, (competitionWallet.executionFloatBalance ?? 0) - executionSpend),
+    );
+    competitionWallet.balance = balanceAfter;
+    competitionWallet.actualSpentTotal = roundMoney(
+      (competitionWallet.actualSpentTotal ?? 0) + actualSpend,
+    );
   }
 
   agentSigner.lastUsedAt = new Date().toISOString();
@@ -1233,7 +1702,6 @@ async function enterSelectedCompetition({
   agentSigner.lastExecutionMode = executionContext.participantMode;
   agentSigner.lastExecutionNote = executionContext.executionNote;
 
-  competitionWallet.balance = roundMoney(competitionWallet.balance - entryCost);
   competitionWallet.spentTotal = roundMoney(
     competitionWallet.spentTotal + entryCost,
   );
@@ -1258,6 +1726,7 @@ async function enterSelectedCompetition({
     customStrategy: registration?.customStrategy ?? "",
     signerKeyId: agentSigner.keyId,
     executionNote: executionContext.executionNote,
+    executionFloatTopUp: executionFloatTopUp?.ledgerItem?.amount ?? null,
     createdAt: new Date().toISOString(),
   };
 
@@ -1522,7 +1991,7 @@ function arenaDevApi() {
 
         try {
           const body = await readJsonBody(req);
-          const result = deleteArenaAgent({
+          const result = await deleteArenaAgent({
             agentId: body.agentId ?? arenaState.selectedAgentId,
           });
           json(res, 200, {
@@ -1691,7 +2160,7 @@ function arenaDevApi() {
             }
           }
 
-          const result = topUpCompetitionWallet({
+          const result = await topUpCompetitionWallet({
             agentId,
             competitionId,
             sourceKey,
@@ -1721,7 +2190,7 @@ function arenaDevApi() {
           const competitionId = body.competitionId ?? arenaState.selectedCompetitionId;
           const destinationKey = body.destination ?? "wallet";
 
-          const result = sweepCompetitionWallet({
+          const result = await sweepCompetitionWallet({
             agentId,
             competitionId,
             destinationKey,
