@@ -555,41 +555,35 @@ function App() {
   );
   const selectedStrategyText =
     selectedCompetitionProfile?.strategy || registrationForm.customStrategy.trim() || "Default arena behavior";
-  const fundingSummary =
-    selectedBudget?.key === "auto"
-      ? "Auto uses protocol starter first, then wallet yield."
-      : selectedBudget?.key === "protocol"
-        ? "Only protocol starter budget will be used."
-        : "Only wallet yield budget will be used.";
   const flowCards = [
     {
       id: "selected",
-      label: "Selected Agent",
+      label: "Agent",
       value: selectedAgent?.name ?? "Choose an agent",
-      detail: "Pick who should keep playing from the left rail.",
+      detail: "Choose which agent should receive budget and keep playing.",
     },
     {
       id: "funding",
       label: "Funding",
       value: `${selectedBudget?.label ?? "Play Budget"} · ${runnableBudget.toFixed(2)}`,
-      detail: fundingSummary,
+      detail: "Principal stays in fxSAVE. Only daily yield is routed into spendable budget.",
     },
     {
       id: "run",
-      label: "Auto Run",
+      label: "Start",
       value: runInProgress
-        ? `${selectedRunPlan?.completedEntries ?? 1} live · ${selectedRunPlan?.remainingEntries ?? 0} queued`
+        ? "Run in progress"
         : !competitionIsLive
-          ? "Not live yet"
+          ? "Pending"
         : budgetReady && competitionIsLive
-          ? `${Math.max(1, maxRunnableEntries)} matches ready`
-          : "Waiting for budget",
+          ? `${Math.max(1, maxRunnableEntries)} matches budgeted`
+          : "Awaiting budget",
       detail: runInProgress
-        ? "The next match starts automatically after the current one settles."
+        ? "The arena keeps entering new matches while budget remains."
         : !competitionIsLive
-          ? "This competition tab is visible in the arena, but it cannot be entered yet."
+          ? "This competition is indexed in the arena, but not yet live."
         : competitionIsLive
-          ? `Starts 1 live ${selectedCompetition?.title} match now, then keeps entering until the run budget is exhausted.`
+          ? "Activate the agent if needed, then start the run. Entry and top-up happen automatically."
           : "Choose a live competition before starting a run.",
     },
   ];
@@ -855,12 +849,6 @@ function App() {
   const latestEntry = lastEntry ?? arenaState.entryHistory[0] ?? null;
   const selectedAgentLatestEntry =
     arenaState.entryHistory.find((entry) => entry.agentId === selectedAgent?.id) ?? null;
-  const latestEntryCompetitionTitle =
-    arenaState.competitions.find((item) => item.id === latestEntry?.competitionId)?.title ??
-    latestEntry?.competitionId;
-  const selectedAgentLatestEntryCompetitionTitle =
-    arenaState.competitions.find((item) => item.id === selectedAgentLatestEntry?.competitionId)?.title ??
-    selectedAgentLatestEntry?.competitionId;
   const selectedAgentEntries = arenaState.entryHistory.filter(
     (entry) => entry.agentId === selectedAgent?.id
   ).length;
@@ -960,14 +948,14 @@ function App() {
     },
   ];
   const commandStatusMessage = selectedRunPlan
-    ? `Run status: ${selectedRunPlan.completedEntries} live started, ${selectedRunPlan.remainingEntries} queued next. The next match will start automatically after the current one finishes.`
+    ? `${selectedAgent?.name} is currently running. New matches will continue automatically while budget remains.`
     : lastRun && lastRun.agentId === selectedAgent?.id
-      ? `Latest run for ${selectedAgent?.name} started with 1 live match and ${lastRun.runPlan?.remainingEntries ?? 0} queued next.`
+      ? `${selectedAgent?.name} already completed a recent run. You can start another one whenever more budget is available.`
       : selectedAgentLatestEntry
-        ? `${selectedAgent?.name} last entered ${selectedAgentLatestEntryCompetitionTitle} via ${selectedAgentLatestEntry.budgetSource}${selectedAgentLatestEntry.matchId ? ` · match ${selectedAgentLatestEntry.matchId}` : ""}${selectedAgentLatestEntry.actualPlayerNickname ? ` · attended as ${selectedAgentLatestEntry.actualPlayerNickname}` : ""}${selectedAgentLatestEntry.customStrategy ? ` · strategy saved` : ""} for $${selectedAgentLatestEntry.amount.toFixed(2)}`
+        ? `${selectedAgent?.name} is ready again. Last entry used ${selectedAgentLatestEntry.budgetSource} budget and deducted $${selectedAgentLatestEntry.amount.toFixed(2)} from the play loop.`
         : competitionIsLive
-          ? `${selectedAgent?.name} has not entered a competition yet. Press Start to activate it and open the first live MPP Checkers match.`
-          : `${selectedAgent?.name} is ready in the arena. Switch to the live competition tab to start the first run.`;
+          ? `${selectedAgent?.name} has not entered yet. Start the run and the arena will prepare the account, top up budget, and enter automatically.`
+          : `${selectedAgent?.name} is ready in the arena. Switch to a live competition tab to start the first run.`;
 
   return (
     <div className="page-shell">
@@ -1018,8 +1006,7 @@ function App() {
               <div className="panel-label">OVERVIEW</div>
               <h1>Park Capital. Fuel Agents.</h1>
               <p>
-                Yield Arena parks principal in fxSAVE, converts the daily yield into play budget,
-                and lets agents spend that budget across competitions.
+                Park principal in fxSAVE. Convert daily yield into play budget. Let agents spend only that budget.
               </p>
               <div className="hero-inline">
                 <span className="tiny-label">principal</span>
@@ -1030,8 +1017,7 @@ function App() {
                 <span>{arenaStatus}</span>
               </div>
               <div className="hero-summary">
-                Principal stays parked and withdrawable in fxSAVE. Only the generated yield is routed
-                into agent accounts, topped up for competition entry, and recycled through the arena.
+                Principal stays parked and withdrawable. Yield becomes play budget. Agent accounts only receive small, competition-ready float.
               </div>
               <div className="mvp-strip">
                 <span className="tiny-label">MVP now</span>
@@ -1054,23 +1040,23 @@ function App() {
               <article className="competition-card">
                 <div className="competition-card-top">
                   <div>
-                    <div className="tiny-label">selected competition</div>
-                    <strong>{selectedCompetition?.title}</strong>
+                    <div className="tiny-label">funding route</div>
+                    <strong>fxSAVE → Yield → Play Budget</strong>
                   </div>
-                  <div className="status-chip">{selectedCompetition?.status}</div>
+                  <div className="status-chip">active</div>
                 </div>
                 <div className="competition-stats">
                   <div>
-                    <span className="tiny-label">entry</span>
-                    <strong>${selectedCompetition?.entryPrice.toFixed(2)}</strong>
+                    <span className="tiny-label">principal</span>
+                    <strong>stays parked</strong>
                   </div>
                   <div>
-                    <span className="tiny-label">winner</span>
-                    <strong>${selectedCompetition?.payout.toFixed(3)}</strong>
+                    <span className="tiny-label">yield</span>
+                    <strong>becomes budget</strong>
                   </div>
                   <div>
-                    <span className="tiny-label">refund</span>
-                    <strong>${selectedCompetition?.refund.toFixed(3)}</strong>
+                    <span className="tiny-label">agents</span>
+                    <strong>spend the float</strong>
                   </div>
                 </div>
               </article>
@@ -1272,8 +1258,8 @@ function App() {
                   <strong>{selectedCompetitionFloat.toFixed(2)}</strong>
                 </div>
                 <div>
-                  <span className="tiny-label">current mode</span>
-                  <strong>{selectedCompetition?.status}</strong>
+                  <span className="tiny-label">play budget</span>
+                  <strong>{arenaState.playBudget.toFixed(2)}</strong>
                 </div>
               </div>
               {selectedRunPlan ? (
@@ -1345,7 +1331,7 @@ function App() {
               <summary>Show protocol details and funding override</summary>
               <div className="advanced-details-body">
                 <div className="entry-note">
-                  Target model: owner vaults fund the agent account, then the agent account spends into competitions. Today the live MPP join still executes through the owner signer.
+                  Target model: fxSAVE stays in the owner vault, yield tops up the agent account, and the agent account spends into competitions.
                 </div>
                 <div className="field-block">
                   <span className="tiny-label">funding override</span>
