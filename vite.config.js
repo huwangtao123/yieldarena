@@ -18,6 +18,7 @@ import { fileURLToPath } from "node:url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const dataDir = path.join(__dirname, ".data");
+const arenaSnapshotPath = path.join(dataDir, "arena-state.json");
 const agentsPath = path.join(dataDir, "agents.json");
 const registrationsPath = path.join(dataDir, "registrations.json");
 const competitionWalletsPath = path.join(dataDir, "competition-wallets.json");
@@ -184,6 +185,42 @@ function createInitialArenaState() {
 }
 
 const arenaState = createInitialArenaState();
+
+function loadPersistedArenaSnapshot() {
+  if (!existsSync(arenaSnapshotPath)) {
+    return null;
+  }
+
+  try {
+    const raw = readFileSync(arenaSnapshotPath, "utf8");
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === "object" ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function persistArenaSnapshot() {
+  mkdirSync(dataDir, { recursive: true });
+  writeFileSync(
+    arenaSnapshotPath,
+    JSON.stringify(
+      {
+        vaults: arenaState.vaults,
+        selectedAgentId: arenaState.selectedAgentId,
+        selectedBudgetSource: arenaState.selectedBudgetSource,
+        selectedCompetitionId: arenaState.selectedCompetitionId,
+        fundingLedger: arenaState.fundingLedger,
+        entryHistory: arenaState.entryHistory,
+        liveCompetitionEntries: arenaState.liveCompetitionEntries,
+        runPlans: arenaState.runPlans,
+      },
+      null,
+      2,
+    ),
+    "utf8",
+  );
+}
 
 function loadPersistedAgents() {
   if (!existsSync(agentsPath)) {
@@ -642,6 +679,7 @@ function syncDerivedArenaState() {
     signer.budgetEnforcement = "arena_yield_allowance";
   }
   buildAgentAccounts();
+  persistArenaSnapshot();
 }
 
 function hydrateCompetitionWalletsFromRegistrations() {
@@ -813,14 +851,70 @@ arenaState.registrations = loadPersistedRegistrations();
 arenaState.competitionWallets = loadPersistedCompetitionWallets();
 arenaState.agentSigners = loadPersistedAgentSigners();
 arenaState.agents = loadPersistedAgents();
+const persistedArenaSnapshot = loadPersistedArenaSnapshot();
+if (persistedArenaSnapshot) {
+  if (persistedArenaSnapshot.vaults?.protocol || persistedArenaSnapshot.vaults?.wallet) {
+    arenaState.vaults = {
+      ...arenaState.vaults,
+      protocol: {
+        ...arenaState.vaults.protocol,
+        ...(persistedArenaSnapshot.vaults?.protocol ?? {}),
+      },
+      wallet: {
+        ...arenaState.vaults.wallet,
+        ...(persistedArenaSnapshot.vaults?.wallet ?? {}),
+      },
+    };
+  }
+
+  if (typeof persistedArenaSnapshot.selectedAgentId === "string") {
+    arenaState.selectedAgentId = persistedArenaSnapshot.selectedAgentId;
+  }
+
+  if (typeof persistedArenaSnapshot.selectedBudgetSource === "string") {
+    arenaState.selectedBudgetSource = persistedArenaSnapshot.selectedBudgetSource;
+  }
+
+  if (typeof persistedArenaSnapshot.selectedCompetitionId === "string") {
+    arenaState.selectedCompetitionId = persistedArenaSnapshot.selectedCompetitionId;
+  }
+
+  if (Array.isArray(persistedArenaSnapshot.fundingLedger)) {
+    arenaState.fundingLedger = persistedArenaSnapshot.fundingLedger;
+  }
+
+  if (Array.isArray(persistedArenaSnapshot.entryHistory)) {
+    arenaState.entryHistory = persistedArenaSnapshot.entryHistory;
+  }
+
+  if (
+    persistedArenaSnapshot.liveCompetitionEntries &&
+    typeof persistedArenaSnapshot.liveCompetitionEntries === "object"
+  ) {
+    arenaState.liveCompetitionEntries = persistedArenaSnapshot.liveCompetitionEntries;
+  }
+
+  if (persistedArenaSnapshot.runPlans && typeof persistedArenaSnapshot.runPlans === "object") {
+    arenaState.runPlans = persistedArenaSnapshot.runPlans;
+  }
+}
 if (!arenaState.agents.some((agent) => agent.id === arenaState.selectedAgentId)) {
   arenaState.selectedAgentId = arenaState.agents[0]?.id ?? "yield-arena-bot";
+}
+if (!arenaState.budgetSources[arenaState.selectedBudgetSource]) {
+  arenaState.selectedBudgetSource = "auto";
+}
+if (!arenaState.competitions.some((competition) => competition.id === arenaState.selectedCompetitionId)) {
+  arenaState.selectedCompetitionId = arenaState.competitions[0]?.id ?? "mpp-checkers";
 }
 hydrateCompetitionWalletsFromRegistrations();
 syncDerivedArenaState();
 
 function resetArenaState() {
   Object.assign(arenaState, createInitialArenaState());
+  if (existsSync(arenaSnapshotPath)) {
+    unlinkSync(arenaSnapshotPath);
+  }
   if (existsSync(agentsPath)) {
     unlinkSync(agentsPath);
   }
@@ -862,6 +956,7 @@ function createArenaAgent({ name } = {}) {
   arenaState.agents.unshift(agent);
   arenaState.selectedAgentId = agent.id;
   persistAgents();
+  persistArenaSnapshot();
   return agent;
 }
 
@@ -1959,6 +2054,7 @@ function arenaDevApi() {
           }
 
           arenaState.selectedAgentId = agent.id;
+          persistArenaSnapshot();
           json(res, 200, arenaState);
         } catch {
           json(res, 400, { error: "invalid json body" });
@@ -2020,6 +2116,7 @@ function arenaDevApi() {
           }
 
           arenaState.selectedBudgetSource = budget.key;
+          persistArenaSnapshot();
           json(res, 200, arenaState);
         } catch {
           json(res, 400, { error: "invalid json body" });
@@ -2043,6 +2140,7 @@ function arenaDevApi() {
           }
 
           arenaState.selectedCompetitionId = competition.id;
+          persistArenaSnapshot();
           json(res, 200, arenaState);
         } catch {
           json(res, 400, { error: "invalid json body" });
