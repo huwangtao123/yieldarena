@@ -959,8 +959,8 @@ function App() {
   ];
   const commandStatusMessage = selectedLiveCompetitionEntry && liveMatchActive
     ? delegatedNicknameMismatch
-      ? `${selectedAgent?.name} successfully entered match ${selectedLiveCompetitionEntry.gameId}, but it is currently attending as ${selectedLiveCompetitionEntry.payerNickname} while the registered profile is ${selectedLiveCompetitionEntry.registeredNickname}. The match is waiting for moves, so the queued run has not advanced yet.`
-      : `${selectedAgent?.name} successfully entered match ${selectedLiveCompetitionEntry.gameId}. The match is still active and waiting for moves, so the queued run has not advanced yet.`
+      ? `${selectedAgent?.name} is auto-playing match ${selectedLiveCompetitionEntry.gameId} through ${selectedLiveCompetitionEntry.payerNickname} while the registered profile is ${selectedLiveCompetitionEntry.registeredNickname}.${selectedLiveCompetitionEntry.lastMove ? ` Last auto move: ${selectedLiveCompetitionEntry.lastMove.from} → ${selectedLiveCompetitionEntry.lastMove.to}.` : ""}`
+      : `${selectedAgent?.name} is auto-playing match ${selectedLiveCompetitionEntry.gameId}.${selectedLiveCompetitionEntry.lastMove ? ` Last auto move: ${selectedLiveCompetitionEntry.lastMove.from} → ${selectedLiveCompetitionEntry.lastMove.to}.` : ""}`
     : selectedRunPlan
       ? `${selectedAgent?.name} is currently running. New matches will continue automatically while budget remains.`
     : lastRun && lastRun.agentId === selectedAgent?.id
@@ -1330,6 +1330,27 @@ function App() {
                     <strong>{selectedLiveCompetitionEntry.status ?? "pending"}</strong>
                   </div>
                 </div>
+              ) : null}
+              {selectedLiveCompetitionEntry?.lastMove ? (
+                <div className="agent-stat-grid compact">
+                  <div>
+                    <span className="tiny-label">last auto move</span>
+                    <strong>
+                      {selectedLiveCompetitionEntry.lastMove.from} → {selectedLiveCompetitionEntry.lastMove.to}
+                    </strong>
+                  </div>
+                  <div>
+                    <span className="tiny-label">move type</span>
+                    <strong>{selectedLiveCompetitionEntry.lastMove.isJump ? "jump" : "standard"}</strong>
+                  </div>
+                  <div>
+                    <span className="tiny-label">moved at</span>
+                    <strong>{selectedLiveCompetitionEntry.lastMove.movedAt?.slice(11, 16) ?? "--"}</strong>
+                  </div>
+                </div>
+              ) : null}
+              {selectedLiveCompetitionEntry?.lastMoveError ? (
+                <div className="entry-note error">{selectedLiveCompetitionEntry.lastMoveError}</div>
               ) : null}
             </article>
 
