@@ -429,7 +429,7 @@ a {
 
 .step-list {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 12px;
 }
 
@@ -465,6 +465,38 @@ a {
 
 .status-ready {
   border-color: var(--line-strong);
+}
+
+.primary-action-wrap,
+.feedback-card {
+  border: 1px solid var(--line);
+  background: var(--panel-soft);
+}
+
+.primary-action-wrap {
+  padding: 14px;
+  display: grid;
+  gap: 10px;
+}
+
+.feedback-card {
+  padding: 14px;
+  display: grid;
+  gap: 8px;
+}
+
+.feedback-card p {
+  color: var(--text);
+  line-height: 1.5;
+  font-size: 0.92rem;
+}
+
+.feedback-card-error {
+  border-color: rgba(255, 143, 143, 0.24);
+}
+
+.feedback-card-error p {
+  color: var(--danger);
 }
 
 .status-required,
@@ -819,6 +851,10 @@ a {
   .competition-detail-grid,
   .mode-status-grid {
     grid-template-columns: 1fr;
+  }
+
+  .step-list {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .mvp-strip {

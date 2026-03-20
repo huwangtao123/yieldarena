@@ -132,6 +132,63 @@ function formatTime(value) {
   }).format(new Date(value));
 }
 
+function formatFeedbackFailure(reason, nextStep) {
+  return `Why failed: ${reason}. What to do next: ${nextStep}`;
+}
+
+function formatFeedbackSuccess(summary, { amount = 0, source = "none", remaining = 0, nextStep = "" } = {}) {
+  const parts = [
+    `Success: ${summary}.`,
+    `Amount: $${amount.toFixed(2)}.`,
+    `Source: ${source}.`,
+    `Remaining play budget: $${remaining.toFixed(2)}.`,
+  ];
+
+  if (nextStep) {
+    parts.push(`Next: ${nextStep}`);
+  }
+
+  return parts.join(" ");
+}
+
+function resolveFundingSource(sourceKey) {
+  if (sourceKey === "auto") {
+    return "protocol/wallet";
+  }
+
+  return sourceKey || "wallet";
+}
+
+function getFailureNextStep(reason, fallback) {
+  const normalized = String(reason ?? "").toLowerCase();
+
+  if (normalized.includes("insufficient budget")) {
+    return "Switch to a funded source or wait for more yield.";
+  }
+
+  if (normalized.includes("not live")) {
+    return "Switch back to the live competition tab.";
+  }
+
+  if (normalized.includes("nickname")) {
+    return "Edit the nickname and try again.";
+  }
+
+  if (normalized.includes("run already in progress")) {
+    return "Wait for the current live match to settle before starting another run.";
+  }
+
+  if (normalized.includes("register")) {
+    return "Use Start Auto Run so the arena can prepare the profile automatically.";
+  }
+
+  if (normalized.includes("signer")) {
+    return "Use Start Auto Run so the arena can prepare the signer automatically.";
+  }
+
+  return fallback;
+}
+
 function App() {
   const [scoreboard, setScoreboard] = useState(fallbackScoreboard);
   const [recentGames, setRecentGames] = useState([]);
@@ -159,6 +216,15 @@ function App() {
   const [isResetting, setIsResetting] = useState(false);
   const [isCreatingAgent, setIsCreatingAgent] = useState(false);
   const [isDeletingAgent, setIsDeletingAgent] = useState(false);
+
+  const clearFeedback = () => {
+    setEntryError("");
+    setRegistrationError("");
+    setWalletActionError("");
+    setWalletActionNotice("");
+    setSignerError("");
+    setSignerNotice("");
+  };
 
   useEffect(() => {
     let active = true;
@@ -330,6 +396,7 @@ function App() {
 
   async function handleCreateAgent() {
     setIsCreatingAgent(true);
+    clearFeedback();
     try {
       const response = await fetch("/api/arena/create-agent", {
         method: "POST",
@@ -344,9 +411,21 @@ function App() {
       setArenaState(data.arenaState);
       setArenaLoaded(true);
       setArenaStatus("live");
-      setWalletActionNotice(`${data.agent.name} is ready in the roster.`);
+      setWalletActionNotice(
+        formatFeedbackSuccess(`${data.agent.name} is ready in the roster`, {
+          amount: 0,
+          source: resolveFundingSource(arenaState.selectedBudgetSource),
+          remaining: data.arenaState.playBudget,
+          nextStep: "Select a live competition and press Start Auto Run.",
+        }),
+      );
     } catch (error) {
-      setWalletActionError(error.message || "agent creation failed");
+      setWalletActionError(
+        formatFeedbackFailure(
+          error.message || "agent creation failed",
+          getFailureNextStep(error.message, "Try creating the agent again."),
+        ),
+      );
     } finally {
       setIsCreatingAgent(false);
     }
@@ -354,12 +433,7 @@ function App() {
 
   async function handleDeleteAgent() {
     setIsDeletingAgent(true);
-    setEntryError("");
-    setRegistrationError("");
-    setWalletActionError("");
-    setWalletActionNotice("");
-    setSignerError("");
-    setSignerNotice("");
+    clearFeedback();
 
     try {
       const response = await fetch("/api/arena/delete-agent", {
@@ -379,12 +453,25 @@ function App() {
       setArenaLoaded(true);
       setArenaStatus("live");
       setWalletActionNotice(
-        data.sweptAmount > 0
-          ? `${data.deleted.name} deleted. ${data.sweptAmount.toFixed(2)} returned to the main account wallet budget.`
-          : `${data.deleted.name} deleted. No competition balance needed to be returned.`
+        formatFeedbackSuccess(
+          data.sweptAmount > 0
+            ? `${data.deleted.name} deleted and remaining balance returned to the main account`
+            : `${data.deleted.name} deleted with no remaining balance to return`,
+          {
+            amount: data.sweptAmount ?? 0,
+            source: "wallet",
+            remaining: data.arenaState.playBudget,
+            nextStep: "Choose the next agent and continue from Start Auto Run.",
+          },
+        ),
       );
     } catch (error) {
-      setWalletActionError(error.message || "delete agent failed");
+      setWalletActionError(
+        formatFeedbackFailure(
+          error.message || "delete agent failed",
+          getFailureNextStep(error.message, "Keep at least one agent in the roster, then try again."),
+        ),
+      );
     } finally {
       setIsDeletingAgent(false);
     }
@@ -410,11 +497,7 @@ function App() {
 
   async function handleRegisterAgent(event) {
     event?.preventDefault?.();
-    setRegistrationError("");
-    setWalletActionError("");
-    setWalletActionNotice("");
-    setSignerError("");
-    setSignerNotice("");
+    clearFeedback();
     setIsRegistering(true);
 
     try {
@@ -436,8 +519,21 @@ function App() {
       setArenaState(data.arenaState);
       setArenaLoaded(true);
       setArenaStatus("live");
+      setWalletActionNotice(
+        formatFeedbackSuccess(`Registered ${data.registration?.nickname ?? registrationForm.nickname.trim()} for ${selectedCompetition?.title}`, {
+          amount: 0,
+          source: resolveFundingSource(arenaState.selectedBudgetSource),
+          remaining: data.arenaState.playBudget,
+          nextStep: "Use Start Auto Run to let the arena fund entry automatically.",
+        }),
+      );
     } catch (error) {
-      setRegistrationError(error.message || "registration failed");
+      setRegistrationError(
+        formatFeedbackFailure(
+          error.message || "registration failed",
+          getFailureNextStep(error.message, "Edit the nickname and try again."),
+        ),
+      );
     } finally {
       setIsRegistering(false);
     }
@@ -445,12 +541,7 @@ function App() {
 
   async function handleResetDemo() {
     setIsResetting(true);
-    setEntryError("");
-    setRegistrationError("");
-    setWalletActionError("");
-    setWalletActionNotice("");
-    setSignerError("");
-    setSignerNotice("");
+    clearFeedback();
 
     try {
       const response = await fetch("/api/arena/reset", {
@@ -554,58 +645,60 @@ function App() {
       (selectedRunPlan.status === "armed" || selectedLiveCompetitionEntry?.status === "waiting" || selectedLiveCompetitionEntry?.status === "active")
   );
   const liveMatchActive = selectedLiveCompetitionEntry?.status === "active";
-  const delegatedNicknameMismatch = Boolean(
-    selectedLiveCompetitionEntry?.registeredNickname &&
-      selectedLiveCompetitionEntry?.payerNickname &&
-      selectedLiveCompetitionEntry.registeredNickname !== selectedLiveCompetitionEntry.payerNickname
-  );
   const selectedStrategyText =
     selectedCompetitionProfile?.strategy || registrationForm.customStrategy.trim() || "Default arena behavior";
+  const budgetSourceLabel = selectedBudget?.key === "auto" ? "protocol/wallet" : selectedBudget?.key ?? "none";
+  const primaryActionLabel = isEntering
+    ? "Starting Run..."
+    : runInProgress
+      ? "Run In Progress"
+      : competitionIsLive
+        ? "Start Auto Run"
+        : `Go to ${liveCompetition?.title}`;
+  const feedbackError = registrationError || signerError || walletActionError || entryError;
+  const feedbackSuccess = feedbackError ? "" : signerNotice || walletActionNotice;
   const flowCards = [
     {
-      id: "selected",
-      label: "Agent",
-      value: selectedAgent?.name ?? "Choose an agent",
-      detail: "Choose which agent should receive budget and keep playing.",
+      id: "activate",
+      label: "1. Activate",
+      value: agentReady ? "Ready" : "Needed",
+      detail: "Arena provisions the agent account, nickname, and signer automatically.",
     },
     {
-      id: "funding",
-      label: "Funding",
-      value: `${selectedBudget?.label ?? "Play Budget"} · ${runnableBudget.toFixed(2)}`,
-      detail: "Principal stays in fxSAVE. Only daily yield is routed into spendable budget.",
+      id: "fund",
+      label: "2. Fund",
+      value: budgetReady ? `$${runnableBudget.toFixed(2)} ready` : "Need yield",
+      detail: "Principal stays withdrawable. Only Playable Yield is routed into spendable budget.",
     },
     {
-      id: "run",
-      label: "Start",
+      id: "enter",
+      label: "3. Enter",
+      value: selectedLiveCompetitionEntry?.gameId
+        ? `Match ${selectedLiveCompetitionEntry.gameId}`
+        : competitionIsLive
+          ? "Ready"
+          : "Pending",
+      detail: "The arena routes wallet, signer, budget, and competition entry in one step.",
+    },
+    {
+      id: "auto-run",
+      label: "4. Auto-Run",
       value: runInProgress
         ? liveMatchActive
-          ? "Waiting for moves"
-          : "Run in progress"
-        : !competitionIsLive
-          ? "Pending"
-        : budgetReady && competitionIsLive
-          ? `${Math.max(1, maxRunnableEntries)} matches budgeted`
-          : "Awaiting budget",
+          ? "Live"
+          : "Continuing"
+        : competitionIsLive && budgetReady
+          ? "Ready"
+          : "Waiting",
       detail: runInProgress
-        ? liveMatchActive
-          ? "Entry succeeded. This live match is still open, so the queue cannot advance yet."
-          : "The arena keeps entering new matches while budget remains."
-        : !competitionIsLive
-          ? "This competition is indexed in the arena, but not yet live."
-        : competitionIsLive
-          ? "Activate the agent if needed, then start the run. Entry and top-up happen automatically."
-          : "Choose a live competition before starting a run.",
+        ? "The arena keeps the agent playing while Playable Yield remains."
+        : "After entry, the arena keeps the agent playing while Playable Yield remains.",
     },
   ];
 
   async function handleActivateAgent() {
     setIsActivating(true);
-    setEntryError("");
-    setRegistrationError("");
-    setWalletActionError("");
-    setWalletActionNotice("");
-    setSignerError("");
-    setSignerNotice("");
+    clearFeedback();
 
     try {
       const response = await fetch("/api/arena/activate-agent", {
@@ -629,12 +722,25 @@ function App() {
       const requestedNickname = registrationForm.nickname.trim();
       const resolvedNickname = data.registration?.nickname ?? requestedNickname;
       setWalletActionNotice(
-        data.activation?.registrationCreated || data.activation?.signerCreated
-          ? `Activated ${selectedAgent?.name}. Arena created the competition profile and signer behind the scenes${resolvedNickname !== requestedNickname ? ` as ${resolvedNickname}` : ""}.`
-          : `${selectedAgent?.name} is already ready for ${selectedCompetition?.title}.`
+        formatFeedbackSuccess(
+          data.activation?.registrationCreated || data.activation?.signerCreated
+            ? `Activated ${selectedAgent?.name}${resolvedNickname !== requestedNickname ? ` as ${resolvedNickname}` : ""}`
+            : `${selectedAgent?.name} is already ready for ${selectedCompetition?.title}`,
+          {
+            amount: 0,
+            source: resolveFundingSource(arenaState.selectedBudgetSource),
+            remaining: data.arenaState.playBudget,
+            nextStep: "Press Start Auto Run to fund and enter the live competition.",
+          },
+        ),
       );
     } catch (error) {
-      setRegistrationError(error.message || "activation failed");
+      setRegistrationError(
+        formatFeedbackFailure(
+          error.message || "activation failed",
+          getFailureNextStep(error.message, "Edit the profile options and try again."),
+        ),
+      );
     } finally {
       setIsActivating(false);
     }
@@ -642,12 +748,7 @@ function App() {
 
   async function handleQuickEnter() {
     setIsEntering(true);
-    setEntryError("");
-    setRegistrationError("");
-    setWalletActionError("");
-    setWalletActionNotice("");
-    setSignerError("");
-    setSignerNotice("");
+    clearFeedback();
 
     try {
       const response = await fetch("/api/arena/quick-enter", {
@@ -681,12 +782,25 @@ function App() {
         ? `1 live now, ${data.run.runPlan?.remainingEntries ?? 0} queued next`
         : `${selectedCompetition?.title}`;
       setWalletActionNotice(
-        data.activation?.registrationCreated || data.activation?.signerCreated
-          ? `Arena activated ${selectedAgent?.name}${resolvedNickname !== requestedNickname ? ` as ${resolvedNickname}` : ""} and queued ${runSummary}.`
-          : `Arena queued ${runSummary}.`
+        formatFeedbackSuccess(
+          data.activation?.registrationCreated || data.activation?.signerCreated
+            ? `Activated ${selectedAgent?.name}${resolvedNickname !== requestedNickname ? ` as ${resolvedNickname}` : ""} and queued ${runSummary}`
+            : `Queued ${runSummary}`,
+          {
+            amount: data.entry?.amount ?? 0,
+            source: data.entry?.budgetSource ?? budgetSourceLabel,
+            remaining: data.arenaState.playBudget,
+            nextStep: "Watch the live feed while the arena continues the run automatically.",
+          },
+        ),
       );
     } catch (error) {
-      setEntryError(error.message || "quick enter failed");
+      setEntryError(
+        formatFeedbackFailure(
+          error.message || "quick enter failed",
+          getFailureNextStep(error.message, "Stay on the live competition and try Start Auto Run again."),
+        ),
+      );
     } finally {
       setIsEntering(false);
     }
@@ -694,11 +808,7 @@ function App() {
 
   async function handleEnterCompetition() {
     setIsEntering(true);
-    setEntryError("");
-    setWalletActionError("");
-    setWalletActionNotice("");
-    setSignerError("");
-    setSignerNotice("");
+    clearFeedback();
 
     try {
       if (!selectedAgentRegistration) {
@@ -730,22 +840,27 @@ function App() {
         setSelectedGameId(data.entry.matchId);
       }
       setWalletActionNotice(
-        data.topUp
-          ? `Auto topped up ${data.topUp.amount.toFixed(2)} from ${data.topUp.source} into the competition wallet.`
-          : "Competition wallet had enough balance to enter directly."
+        formatFeedbackSuccess("Entered the live competition", {
+          amount: data.entry?.amount ?? 0,
+          source: data.entry?.budgetSource ?? budgetSourceLabel,
+          remaining: data.arenaState.playBudget,
+          nextStep: "Wait for the auto-run loop to continue the match.",
+        }),
       );
     } catch (error) {
-      setEntryError(error.message || "entry failed");
+      setEntryError(
+        formatFeedbackFailure(
+          error.message || "entry failed",
+          getFailureNextStep(error.message, "Use Start Auto Run so the arena can handle activation and entry together."),
+        ),
+      );
     } finally {
       setIsEntering(false);
     }
   }
 
   async function handleTopUpCompetitionWallet() {
-    setWalletActionError("");
-    setWalletActionNotice("");
-    setSignerError("");
-    setSignerNotice("");
+    clearFeedback();
 
     try {
       if (!selectedAgentRegistration) {
@@ -771,18 +886,25 @@ function App() {
       setArenaLoaded(true);
       setArenaStatus("live");
       setWalletActionNotice(
-        `Funded ${data.topUp.amount.toFixed(2)} from ${data.topUp.source} into the competition wallet.`
+        formatFeedbackSuccess("Funded the competition wallet", {
+          amount: data.topUp.amount,
+          source: data.topUp.source,
+          remaining: data.arenaState.playBudget,
+          nextStep: "Return to the main Start Auto Run flow when you are ready.",
+        }),
       );
     } catch (error) {
-      setWalletActionError(error.message || "top-up failed");
+      setWalletActionError(
+        formatFeedbackFailure(
+          error.message || "top-up failed",
+          getFailureNextStep(error.message, "Switch to a funded source or wait for more yield."),
+        ),
+      );
     }
   }
 
   async function handleSweepCompetitionWallet() {
-    setWalletActionError("");
-    setWalletActionNotice("");
-    setSignerError("");
-    setSignerNotice("");
+    clearFeedback();
 
     try {
       if (!selectedCompetitionWallet?.balance) {
@@ -807,17 +929,26 @@ function App() {
       setArenaState(data.arenaState);
       setArenaLoaded(true);
       setArenaStatus("live");
-      setWalletActionNotice(`Swept ${data.sweep.amount.toFixed(2)} back into wallet budget.`);
+      setWalletActionNotice(
+        formatFeedbackSuccess("Swept competition float back into the wallet budget", {
+          amount: data.sweep.amount,
+          source: "wallet",
+          remaining: data.arenaState.playBudget,
+          nextStep: "Return to Start Auto Run if you want to continue playing.",
+        }),
+      );
     } catch (error) {
-      setWalletActionError(error.message || "sweep failed");
+      setWalletActionError(
+        formatFeedbackFailure(
+          error.message || "sweep failed",
+          getFailureNextStep(error.message, "Only sweep after the competition wallet has a remaining balance."),
+        ),
+      );
     }
   }
 
   async function handleProvisionSigner() {
-    setSignerError("");
-    setSignerNotice("");
-    setWalletActionError("");
-    setWalletActionNotice("");
+    clearFeedback();
 
     try {
       if (!selectedAgentAccount) {
@@ -840,18 +971,28 @@ function App() {
       setArenaState(data.arenaState);
       setArenaLoaded(true);
       setArenaStatus("live");
-      setSignerNotice(
-        `Provisioned ${data.signer.signatureType} signer with ${data.signer.executionMode} execution mode.`
+      setWalletActionNotice(
+        formatFeedbackSuccess("Provisioned the agent signer", {
+          amount: 0,
+          source: resolveFundingSource(arenaState.selectedBudgetSource),
+          remaining: data.arenaState.playBudget,
+          nextStep: "Use Start Auto Run so the arena can enter the live competition.",
+        }),
       );
     } catch (error) {
-      setSignerError(error.message || "signer provisioning failed");
+      setSignerError(
+        formatFeedbackFailure(
+          error.message || "signer provisioning failed",
+          getFailureNextStep(error.message, "Use Start Auto Run so the arena can provision the signer automatically."),
+        ),
+      );
     }
   }
 
   const metrics = [
-    ["Principal (fxSAVE)", `${arenaState.principal} fxSAVE`],
-    ["Today's Yield", arenaState.todayYield.toFixed(2)],
-    ["Play Budget", arenaState.playBudget.toFixed(2)],
+    ["Principal (withdrawable)", `${arenaState.vaults.wallet.withdrawablePrincipal} fxSAVE`],
+    ["Playable Yield", `$${arenaState.playBudget.toFixed(2)}`],
+    ["Agent Auto-Run", runInProgress ? "live" : "arena-managed"],
   ];
 
   const recentEntries = arenaState.entryHistory.slice(0, 3);
@@ -958,18 +1099,25 @@ function App() {
     },
   ];
   const commandStatusMessage = selectedLiveCompetitionEntry && liveMatchActive
-    ? delegatedNicknameMismatch
-      ? `${selectedAgent?.name} is auto-playing match ${selectedLiveCompetitionEntry.gameId} through ${selectedLiveCompetitionEntry.payerNickname} while the registered profile is ${selectedLiveCompetitionEntry.registeredNickname}.${selectedLiveCompetitionEntry.lastMove ? ` Last auto move: ${selectedLiveCompetitionEntry.lastMove.from} → ${selectedLiveCompetitionEntry.lastMove.to}.` : ""}`
-      : `${selectedAgent?.name} is auto-playing match ${selectedLiveCompetitionEntry.gameId}.${selectedLiveCompetitionEntry.lastMove ? ` Last auto move: ${selectedLiveCompetitionEntry.lastMove.from} → ${selectedLiveCompetitionEntry.lastMove.to}.` : ""}`
+    ? `Live now in match ${selectedLiveCompetitionEntry.gameId}. The arena will keep playing while Playable Yield remains.${selectedLiveCompetitionEntry.lastMove ? ` Last move: ${selectedLiveCompetitionEntry.lastMove.from} → ${selectedLiveCompetitionEntry.lastMove.to}.` : ""}`
     : selectedRunPlan
-      ? `${selectedAgent?.name} is currently running. New matches will continue automatically while budget remains.`
-    : lastRun && lastRun.agentId === selectedAgent?.id
-      ? `${selectedAgent?.name} already completed a recent run. You can start another one whenever more budget is available.`
-      : selectedAgentLatestEntry
-        ? `${selectedAgent?.name} is ready again. Last entry used ${selectedAgentLatestEntry.budgetSource} budget and deducted $${selectedAgentLatestEntry.amount.toFixed(2)} from the play loop.`
-        : competitionIsLive
-          ? `${selectedAgent?.name} has not entered yet. Start the run and the arena will prepare the account, top up budget, and enter automatically.`
-          : `${selectedAgent?.name} is ready in the arena. Switch to a live competition tab to start the first run.`;
+      ? "Run is active. The arena will keep opening the next match while Playable Yield remains."
+      : lastRun && lastRun.agentId === selectedAgent?.id
+        ? "Run completed. Start Auto Run again whenever you want the arena to open the next set of matches."
+        : selectedAgentLatestEntry
+          ? `Ready for another run. The last entry spent $${selectedAgentLatestEntry.amount.toFixed(2)} from ${selectedAgentLatestEntry.budgetSource} budget.`
+          : competitionIsLive
+            ? "Press Start Auto Run. The arena will activate the agent, route Playable Yield, enter the live competition, and keep running automatically."
+            : `This mode is not live yet. Switch back to ${liveCompetition?.title} to start the first run.`;
+
+  function handlePrimaryAction() {
+    if (!competitionIsLive) {
+      handleCompetitionSelect(liveCompetition.id);
+      return;
+    }
+
+    handleQuickEnter();
+  }
 
   return (
     <div className="page-shell">
@@ -1018,27 +1166,7 @@ function App() {
           <section className="panel hero-panel">
             <div className="hero-copy">
               <div className="panel-label">OVERVIEW</div>
-              <h1>Park Capital. Fuel Agents.</h1>
-              <p>
-                Yield Arena turns fxSAVE yield into continuous budget for agent competitions.
-              </p>
-              <div className="hero-inline">
-                <span className="tiny-label">principal</span>
-                <span>fxSAVE</span>
-                <span className="tiny-label">yield source</span>
-                <span>active</span>
-                <span className="tiny-label">arena</span>
-                <span>{arenaStatus}</span>
-              </div>
-              <div className="hero-summary">
-                Principal stays parked and withdrawable. Yield becomes play budget. Agent accounts only receive small, competition-ready float.
-              </div>
-              <div className="mvp-strip">
-                <span className="tiny-label">MVP now</span>
-                <strong>fxSAVE principal generates the budget that agents spend.</strong>
-                <span className="tiny-label">Next</span>
-                <span>Private challenges open after the core loop is proven.</span>
-              </div>
+              <h1>Principal stays safe. Yield funds agent auto-runs.</h1>
             </div>
 
             <div className="hero-side">
@@ -1054,23 +1182,23 @@ function App() {
               <article className="competition-card">
                 <div className="competition-card-top">
                   <div>
-                    <div className="tiny-label">funding route</div>
-                    <strong>fxSAVE → Yield → Play Budget</strong>
+                    <div className="tiny-label">core flow</div>
+                    <strong>Activate → Fund → Enter → Auto-Run</strong>
                   </div>
-                  <div className="status-chip">active</div>
+                  <div className="status-chip">{arenaStatus}</div>
                 </div>
                 <div className="competition-stats">
                   <div>
                     <span className="tiny-label">principal</span>
-                    <strong>stays parked</strong>
+                    <strong>withdrawable</strong>
                   </div>
                   <div>
                     <span className="tiny-label">yield</span>
-                    <strong>becomes budget</strong>
+                    <strong>playable</strong>
                   </div>
                   <div>
-                    <span className="tiny-label">agents</span>
-                    <strong>spend the float</strong>
+                    <span className="tiny-label">auto-run</span>
+                    <strong>arena-managed</strong>
                   </div>
                 </div>
               </article>
@@ -1131,17 +1259,7 @@ function App() {
                 </div>
               </article>
 
-              <form
-                className="competition-action-card"
-                onSubmit={(event) => {
-                  event.preventDefault();
-                  if (!competitionIsLive) {
-                    handleCompetitionSelect(liveCompetition.id);
-                    return;
-                  }
-                  handleQuickEnter();
-                }}
-              >
+              <article className="competition-action-card">
                 <div className="competition-card-top">
                   <div>
                     <div className="tiny-label">this agent in this game</div>
@@ -1165,7 +1283,7 @@ function App() {
                   </div>
                   <div>
                     <span className="tiny-label">run</span>
-                    <strong>{runInProgress ? (liveMatchActive ? "waiting for moves" : "in progress") : "ready"}</strong>
+                    <strong>{runInProgress ? (liveMatchActive ? "live" : "continuing") : "ready"}</strong>
                   </div>
                 </div>
                 <div className="entry-note">
@@ -1176,38 +1294,10 @@ function App() {
                 <div className="entry-note entry-note-strong">
                   {competitionIsLive
                     ? hasSelectedCompetitionProfile
-                      ? "Leave the defaults if you want. Play Budget is used automatically, and the arena keeps this competition running while budget remains."
-                      : "First run will create this competition profile automatically, then start playing with Play Budget."
+                      ? "This competition is ready. The arena will handle activation, funding, entry, and auto-run."
+                      : "First run will create the competition profile automatically, then continue with Playable Yield."
                     : `${liveCompetition?.title} is the live MVP competition right now. This tab stays visible so you can see what comes next.`}
                 </div>
-
-                <div className="command-actions">
-                  <button
-                    className="action-button"
-                    type="submit"
-                    disabled={competitionIsLive ? isEntering || !budgetReady || runInProgress : false}
-                  >
-                    {isEntering
-                      ? "Starting Run..."
-                      : runInProgress
-                        ? liveMatchActive
-                          ? "Match Active"
-                          : "Run In Progress"
-                        : competitionIsLive
-                          ? "Start Auto Run"
-                          : `Go to ${liveCompetition?.title}`}
-                  </button>
-                </div>
-                {competitionIsLive && !runInProgress ? (
-                  <div className="entry-note compact">
-                    {Math.max(1, maxRunnableEntries)} matches are budgeted from the current funding selection.
-                  </div>
-                ) : null}
-                {competitionIsLive && runInProgress && liveMatchActive ? (
-                  <div className="entry-note compact">
-                    Current live match must finish before the next queued entry starts.
-                  </div>
-                ) : null}
 
                 <details className="profile-details">
                   <summary>Edit profile options</summary>
@@ -1244,7 +1334,7 @@ function App() {
                     </label>
                   </div>
                 </details>
-              </form>
+              </article>
             </div>
           </section>
 
@@ -1253,7 +1343,14 @@ function App() {
             <div className="step-list">
               {flowCards.map((card) => (
                 <article className="step-card" key={card.id}>
-                  <span className="tiny-label">{card.label}</span>
+                  <div className="step-top">
+                    <span className="tiny-label">{card.label}</span>
+                    <span
+                      className={`status-chip subtle ${["Ready", "Live", "Continuing"].includes(card.value) ? "status-ready" : ""}`}
+                    >
+                      {card.value}
+                    </span>
+                  </div>
                   <strong>{card.value}</strong>
                   <div className="entry-note">{card.detail}</div>
                 </article>
@@ -1354,6 +1451,24 @@ function App() {
               ) : null}
             </article>
 
+            <div className="primary-action-wrap">
+              <button
+                className="action-button primary-action-button"
+                onClick={handlePrimaryAction}
+                type="button"
+                disabled={competitionIsLive ? isEntering || !budgetReady || runInProgress : false}
+              >
+                {primaryActionLabel}
+              </button>
+              <div className="entry-note compact">
+                {competitionIsLive
+                  ? runInProgress
+                    ? "A live run is already underway. The arena will keep advancing as turns settle."
+                    : `The arena will Activate → Fund → Enter → Auto-Run using ${selectedBudget?.label ?? "Playable Yield"}.`
+                  : `This mode is not live yet. Press the button to switch back to ${liveCompetition?.title}.`}
+              </div>
+            </div>
+
             <div className="command-actions">
               <button
                 className="ghost-button"
@@ -1377,16 +1492,22 @@ function App() {
                 Add another agent before deleting this one. The arena always keeps at least one active agent.
               </div>
             ) : null}
-            {registrationError ? <div className="entry-note error">{registrationError}</div> : null}
-            {signerError ? <div className="entry-note error">{signerError}</div> : null}
-            {walletActionError ? <div className="entry-note error">{walletActionError}</div> : null}
-            {entryError ? <div className="entry-note error">{entryError}</div> : null}
-            {signerNotice ? <div className="entry-note">{signerNotice}</div> : null}
-            {walletActionNotice ? <div className="entry-note">{walletActionNotice}</div> : null}
+            {feedbackError ? (
+              <article className="feedback-card feedback-card-error">
+                <span className="tiny-label">Run feedback</span>
+                <p>{feedbackError}</p>
+              </article>
+            ) : null}
+            {feedbackSuccess ? (
+              <article className="feedback-card">
+                <span className="tiny-label">Run feedback</span>
+                <p>{feedbackSuccess}</p>
+              </article>
+            ) : null}
             <div className="entry-note">{commandStatusMessage}</div>
 
             <details className="advanced-details">
-              <summary>Show protocol details and funding override</summary>
+              <summary>Advanced controls</summary>
               <div className="advanced-details-body">
                 <div className="entry-note">
                   Target model: fxSAVE stays in the owner vault, yield tops up the agent account, and the agent account spends into competitions.
