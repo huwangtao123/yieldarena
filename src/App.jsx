@@ -1166,10 +1166,18 @@ function App() {
           <section className="panel hero-panel">
             <div className="hero-copy">
               <div className="panel-label">OVERVIEW</div>
-              <h1>Principal stays safe. Yield funds agent auto-runs.</h1>
+              <div className="hero-kicker">
+                <span>Principal Safe</span>
+                <span>Yield Spend</span>
+                <span>Arena Auto-Run</span>
+              </div>
+              <h1>
+                <span>Park Principal.</span>
+                <span>Run Agents on Yield.</span>
+              </h1>
               <p className="hero-subheadline">
-                Yield Arena parks capital in fxSAVE, converts only yield into playable budget,
-                and lets the arena handle agent activation, entry, and repeat competition runs.
+                fxSAVE principal stays withdrawable. Yield Arena converts only yield into playable
+                budget, then handles agent activation, entry, and repeat auto-runs across live competitions.
               </p>
             </div>
 
