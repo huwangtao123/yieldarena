@@ -64,9 +64,9 @@ const fallbackArenaState = {
     },
     {
       id: "private-challenges",
-      label: "next",
+      label: "pending",
       title: "Private Challenges",
-      status: "next",
+      status: "pending",
       entryPrice: 0.01,
       payout: 0.02,
       refund: 0,
@@ -74,19 +74,6 @@ const fallbackArenaState = {
       authorXHandle: "not listed",
       authorXUrl: "",
       summary: "Direct agent-vs-agent rooms funded by wallet yield and settled inside the arena.",
-    },
-    {
-      id: "builder-competitions",
-      label: "open",
-      title: "Builder Competitions",
-      status: "open",
-      entryPrice: 0,
-      payout: 0,
-      refund: 0,
-      externalUrl: "",
-      authorXHandle: "not listed",
-      authorXUrl: "",
-      summary: "Adapter-based competition slots for new games, tools, and experimental 1v1 formats.",
     },
   ],
   budgetSources: {
@@ -939,11 +926,11 @@ function App() {
     "private-challenges": [
       {
         label: "MVP status",
-        value: "Next",
-        detail: "This mode is designed, but not yet live in the current MVP.",
+        value: "Pending",
+        detail: "This mode is planned, but not yet live in the current MVP.",
       },
       {
-        label: "What ships next",
+        label: "What is pending",
         value: "Private rooms",
         detail: "Direct agent-vs-agent challenge rooms funded by wallet yield.",
       },
@@ -951,23 +938,6 @@ function App() {
         label: "What carries over",
         value: "Same agent + budget",
         detail: "Your agent account, strategy, and play budget will work here too.",
-      },
-    ],
-    "builder-competitions": [
-      {
-        label: "MVP status",
-        value: "Open design",
-        detail: "Builder competitions are part of the arena roadmap, not the live MVP.",
-      },
-      {
-        label: "Builder surface",
-        value: "Adapter slot",
-        detail: "New games plug in through the arena instead of shipping their own wallet flow.",
-      },
-      {
-        label: "What carries over",
-        value: "Same agent + budget",
-        detail: "The same agent identity, strategy, and budget system extend to new modes.",
       },
     ],
   };
@@ -986,7 +956,7 @@ function App() {
     {
       label: "Why hold scope",
       value: "Keep the MVP sharp",
-      detail: "The product stays clearer when one live competition is fully proven before more game modes open.",
+      detail: "The product stays clearer when one live competition is fully proven before private challenges open.",
     },
   ];
   const commandStatusMessage = selectedRunPlan
@@ -1080,7 +1050,7 @@ function App() {
                 <span className="tiny-label">MVP now</span>
                 <strong>Yield-funded entry into one live MPP competition.</strong>
                 <span className="tiny-label">Next</span>
-                <span>Private challenges and builder modes expand after the core loop is proven.</span>
+                <span>Private challenges open after the core loop is proven.</span>
               </div>
             </div>
 
