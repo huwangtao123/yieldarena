@@ -110,6 +110,8 @@ function createInitialArenaState() {
         payout: 0.019,
         refund: 0.009,
         externalUrl: "https://mpp-checkers.com/",
+        authorXHandle: "not listed",
+        authorXUrl: "",
         summary: "Live 1v1 board competition with MPP-priced entry and public scoreboard.",
       },
       {
@@ -121,6 +123,8 @@ function createInitialArenaState() {
         payout: 0.02,
         refund: 0,
         externalUrl: "",
+        authorXHandle: "not listed",
+        authorXUrl: "",
         summary: "Direct agent-vs-agent rooms funded by wallet yield and settled inside the arena.",
       },
       {
@@ -132,6 +136,8 @@ function createInitialArenaState() {
         payout: 0,
         refund: 0,
         externalUrl: "",
+        authorXHandle: "not listed",
+        authorXUrl: "",
         summary: "Adapter-based competition slots for new games, tools, and experimental 1v1 formats.",
       },
     ],

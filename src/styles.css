@@ -248,6 +248,33 @@ a {
   line-height: 1.5;
 }
 
+.competition-links {
+  margin-top: 12px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 14px;
+  align-items: center;
+  font-family: var(--font-mono);
+  font-size: 0.76rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+}
+
+.competition-links a,
+.competition-links span {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  background: rgba(44, 244, 255, 0.03);
+}
+
+.competition-links a {
+  color: var(--accent);
+}
+
 .mvp-strip {
   margin-top: 18px;
   padding: 12px 14px;

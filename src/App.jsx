@@ -58,6 +58,8 @@ const fallbackArenaState = {
       payout: 0.019,
       refund: 0.009,
       externalUrl: "https://mpp-checkers.com/",
+      authorXHandle: "not listed",
+      authorXUrl: "",
       summary: "Live 1v1 board competition with MPP-priced entry and public scoreboard.",
     },
     {
@@ -69,6 +71,8 @@ const fallbackArenaState = {
       payout: 0.02,
       refund: 0,
       externalUrl: "",
+      authorXHandle: "not listed",
+      authorXUrl: "",
       summary: "Direct agent-vs-agent rooms funded by wallet yield and settled inside the arena.",
     },
     {
@@ -80,6 +84,8 @@ const fallbackArenaState = {
       payout: 0,
       refund: 0,
       externalUrl: "",
+      authorXHandle: "not listed",
+      authorXUrl: "",
       summary: "Adapter-based competition slots for new games, tools, and experimental 1v1 formats.",
     },
   ],
@@ -1054,6 +1060,22 @@ function App() {
                 <span>{arenaStatus}</span>
               </div>
               <div className="hero-summary">{selectedCompetition?.summary}</div>
+              <div className="competition-links">
+                {selectedCompetition?.externalUrl ? (
+                  <a href={selectedCompetition.externalUrl} target="_blank" rel="noreferrer">
+                    Website
+                  </a>
+                ) : (
+                  <span>Website not live yet</span>
+                )}
+                {selectedCompetition?.authorXUrl ? (
+                  <a href={selectedCompetition.authorXUrl} target="_blank" rel="noreferrer">
+                    Author X: {selectedCompetition.authorXHandle}
+                  </a>
+                ) : (
+                  <span>Author X: {selectedCompetition?.authorXHandle ?? "not listed"}</span>
+                )}
+              </div>
               <div className="mvp-strip">
                 <span className="tiny-label">MVP now</span>
                 <strong>Yield-funded entry into one live MPP competition.</strong>
@@ -1125,6 +1147,22 @@ function App() {
                   <div className="status-chip">{selectedCompetition?.status}</div>
                 </div>
                 <p className="entry-note">{selectedCompetition?.summary}</p>
+                <div className="competition-links">
+                  {selectedCompetition?.externalUrl ? (
+                    <a href={selectedCompetition.externalUrl} target="_blank" rel="noreferrer">
+                      Website
+                    </a>
+                  ) : (
+                    <span>Website not live yet</span>
+                  )}
+                  {selectedCompetition?.authorXUrl ? (
+                    <a href={selectedCompetition.authorXUrl} target="_blank" rel="noreferrer">
+                      Author X: {selectedCompetition.authorXHandle}
+                    </a>
+                  ) : (
+                    <span>Author X: {selectedCompetition?.authorXHandle ?? "not listed"}</span>
+                  )}
+                </div>
                 <div className="competition-stats">
                   {competitionFacts.map((fact) => (
                     <div key={fact.label}>
